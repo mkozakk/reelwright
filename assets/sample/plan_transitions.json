@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "summary": "Two-source crossfade with word-highlight subtitles and color grade",
+  "clips": [
+    {
+      "source": "src1",
+      "start": 0.5,
+      "end": 4.5,
+      "reason": "opening beat",
+      "transition_out": {"type": "crossfade", "duration": 0.5}
+    },
+    {
+      "source": "src2",
+      "start": 1.0,
+      "end": 5.0,
+      "reason": "payoff beat"
+    }
+  ],
+  "subtitles": {"enabled": true, "style": "bold-bottom", "mode": "word_highlight"},
+  "color": {"preset": "cinematic", "adjust": {"contrast": 1.08, "saturation": 1.15}},
+  "audio": {"music_track": null, "duck_under_speech": false},
+  "output": {"aspect": "9:16", "resolution": "720p", "max_duration": 10}
+}

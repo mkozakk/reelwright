@@ -1,0 +1,13 @@
+placeholder-energetic.wav
+  Synthetic sine tone (220 Hz), procedurally generated with ffmpeg lavfi.
+  No external source material. Public domain / CC0-equivalent.
+
+placeholder-chill.wav
+  Synthetic sine tone (180 Hz) with vibrato, procedurally generated with
+  ffmpeg lavfi. No external source material. Public domain / CC0-equivalent.
+
+These are engineering placeholders used to exercise the audio mixing and
+sidechain-ducking pipeline in tests and local demos. They are NOT the final
+curated royalty-free catalogue (~6 tracks x 4 moods) described in
+docs/phases/phase-1.md — that item is still outstanding and requires a
+human licence review before real tracks ship.

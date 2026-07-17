@@ -1,0 +1,11 @@
+{
+  "version": "1",
+  "summary": "Basic single clip smoke test",
+  "clips": [
+    {"source": "src1", "start": 1.0, "end": 5.0, "reason": "smoke test clip"}
+  ],
+  "subtitles": {"enabled": false},
+  "color": {"preset": "none"},
+  "audio": {"music_track": null, "duck_under_speech": false},
+  "output": {"aspect": "16:9", "resolution": "720p", "max_duration": 10}
+}
