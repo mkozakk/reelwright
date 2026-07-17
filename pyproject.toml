@@ -9,10 +9,20 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "moto[dynamodb,s3,stepfunctions]>=5",
+]
+services = [
+    "boto3>=1.34",
+    "cryptography>=42",
 ]
 
 [tool.setuptools.packages.find]
-include = ["renderer*"]
+include = ["renderer*", "services*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "media: requires ffmpeg/ffprobe and sample assets",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
