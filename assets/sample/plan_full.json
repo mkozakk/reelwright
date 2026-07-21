@@ -1,0 +1,36 @@
+{
+  "version": "1",
+  "summary": "Full feature exercise: speed ramp, fade-to-black, ducked music",
+  "clips": [
+    {
+      "source": "src1",
+      "start": 0.5,
+      "end": 3.0,
+      "reason": "cold open",
+      "speed": 1.0,
+      "transition_out": {"type": "cut", "duration": 0.0}
+    },
+    {
+      "source": "src1",
+      "start": 4.0,
+      "end": 6.5,
+      "reason": "slow-mo beat",
+      "speed": 0.75,
+      "transition_out": {"type": "fade_to_black", "duration": 0.4}
+    },
+    {
+      "source": "src2",
+      "start": 2.0,
+      "end": 5.0,
+      "reason": "closer"
+    }
+  ],
+  "subtitles": {"enabled": true, "style": "lower-third", "mode": "phrase"},
+  "color": {"preset": "vivid", "adjust": {"contrast": 1.1, "saturation": 1.3}},
+  "audio": {
+    "music_track": "placeholder-energetic",
+    "music_gain_db": -14,
+    "duck_under_speech": true
+  },
+  "output": {"aspect": "1:1", "resolution": "720p", "max_duration": 15}
+}
