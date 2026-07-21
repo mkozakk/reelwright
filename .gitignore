@@ -1,0 +1,133 @@
+# --- Project-local / not for the repo ---
+out/
+docs/
+CLAUDE.md
+.claude/
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# Test / lint / type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.cover
+.hypothesis/
+
+# Packaging / tooling
+pip-wheel-metadata/
+.pdm.toml
+.python-version
+uv.lock
+
+# --- Terraform ---
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!example.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.terraform.lock.hcl
+tfplan
+*.tfplan
+
+# --- AWS / secrets ---
+.aws/
+*.pem
+*.key
+credentials
+
+# --- Media & render artifacts ---
+# Raw footage, intermediates and finished montages never belong in git.
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.m4v
+*.mp3
+*.wav
+*.aac
+*.m4a
+*.flac
+*.ass
+*.srt
+*.vtt
+# Bundled royalty-free assets are tracked explicitly
+!renderer/assets/**
+!assets/**
+
+# Local working dirs
+tmp/
+temp/
+work/
+scratch/
+samples/
+fixtures/media/
+*.log
+
+# ffmpeg / analysis scratch output
+ffmpeg2pass-*
+*.ffindex
+
+# --- Node (frontend) ---
+node_modules/
+.next/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
