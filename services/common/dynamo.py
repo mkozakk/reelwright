@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import boto3
 
 from .models import JobRecord, SourceRef
@@ -15,10 +17,36 @@ def job_pk(job_id: str) -> str:
     return f"JOB#{job_id}"
 
 
+def to_decimal(value):
+    """DynamoDB's Number type has no float representation -- recursively
+    convert floats (e.g. inside an edit_plan) to Decimal before a write."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: to_decimal(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [to_decimal(v) for v in value]
+    return value
+
+
+def to_native(value):
+    """Inverse of to_decimal: every Number read back from DynamoDB arrives
+    as Decimal regardless of whether it was written as an int or a float."""
+    if isinstance(value, Decimal):
+        as_int = int(value)
+        return as_int if as_int == value else float(value)
+    if isinstance(value, dict):
+        return {k: to_native(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [to_native(v) for v in value]
+    return value
+
+
 def get_job(table_name: str, job_id: str) -> JobRecord:
-    item = _table(table_name).get_item(Key={PK: job_pk(job_id)}).get("Item")
-    if item is None:
+    raw_item = _table(table_name).get_item(Key={PK: job_pk(job_id)}).get("Item")
+    if raw_item is None:
         raise KeyError(f"no job record for '{job_id}'")
+    item = to_native(raw_item)
     sources = {
         src_id: SourceRef(**ref) for src_id, ref in item.get("sources", {}).items()
     }
@@ -42,7 +70,7 @@ def update_job(table_name: str, job_id: str, **attrs) -> None:
     if not attrs:
         return
     expr_names = {f"#{k}": k for k in attrs}
-    expr_values = {f":{k}": v for k, v in attrs.items()}
+    expr_values = {f":{k}": to_decimal(v) for k, v in attrs.items()}
     update_expr = "SET " + ", ".join(f"#{k} = :{k}" for k in attrs)
     _table(table_name).update_item(
         Key={PK: job_pk(job_id)},
