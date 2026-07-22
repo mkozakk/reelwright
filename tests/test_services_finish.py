@@ -4,7 +4,6 @@ from pathlib import Path
 
 import boto3
 import pytest
-from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
@@ -16,19 +15,7 @@ from services.finish.handler import FinishVerificationError, run_finish
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_DIR = REPO_ROOT / "assets" / "sample"
 
-
-@pytest.fixture(autouse=True)
-def _require_rsa_sha1_signing():
-    """CloudFront's signed-URL scheme mandates RSA+SHA1 (AWS's fixed spec,
-    not our choice). Some OpenSSL builds disable SHA1 *signature generation*
-    by system-wide crypto policy (verification still works) -- Lambda's own
-    Amazon Linux runtime does not impose this, but a dev machine might.
-    Skip rather than fail when the local OpenSSL policy blocks it."""
-    probe_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    try:
-        probe_key.sign(b"probe", padding.PKCS1v15(), hashes.SHA1())
-    except UnsupportedAlgorithm:
-        pytest.skip("this OpenSSL build's crypto policy disables RSA+SHA1 signing")
+pytestmark = pytest.mark.usefixtures("requires_rsa_sha1_signing")
 
 
 def _throwaway_keypair() -> bytes:

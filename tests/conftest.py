@@ -50,3 +50,28 @@ def aws_stack(aws_credentials):
             "work_bucket": WORK_BUCKET,
             "output_bucket": OUTPUT_BUCKET,
         }
+
+
+@pytest.fixture
+def rsa_sha1_signing_available() -> bool:
+    """CloudFront's signed-URL scheme mandates RSA+SHA1 (AWS's fixed spec,
+    not our choice). Some OpenSSL builds disable SHA1 *signature generation*
+    by system-wide crypto policy (verification still works) -- Lambda's own
+    Amazon Linux runtime does not impose this, but a dev machine might."""
+    from cryptography.exceptions import UnsupportedAlgorithm
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+    probe_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    try:
+        probe_key.sign(b"probe", padding.PKCS1v15(), hashes.SHA1())
+        return True
+    except UnsupportedAlgorithm:
+        return False
+
+
+@pytest.fixture
+def requires_rsa_sha1_signing(rsa_sha1_signing_available):
+    """Skip immediately -- for tests that are entirely about signing."""
+    if not rsa_sha1_signing_available:
+        pytest.skip("this OpenSSL build's crypto policy disables RSA+SHA1 signing")
