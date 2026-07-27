@@ -1,0 +1,57 @@
+name: deploy
+
+# no apply job here on purpose -- terraform apply stays a manual, local step
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-north-1
+  AWS_ACCOUNT_ID: "386566550838"
+  ROLE_ARN: arn:aws:iam::386566550838:role/reelwright-dev-github-actions
+
+jobs:
+  terraform-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      - working-directory: infra/envs/dev
+        run: terraform init -input=false
+      - working-directory: infra/envs/dev
+        run: terraform plan -input=false -var="budget_alert_email=${{ secrets.BUDGET_ALERT_EMAIL }}"
+
+  build-and-push-images:
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - run: |
+          docker build -f docker/lambda.Dockerfile \
+            -t "${{ steps.ecr.outputs.registry }}/reelwright/lambda:${{ github.sha }}" \
+            -t "${{ steps.ecr.outputs.registry }}/reelwright/lambda:latest" .
+          docker push "${{ steps.ecr.outputs.registry }}/reelwright/lambda:${{ github.sha }}"
+          docker push "${{ steps.ecr.outputs.registry }}/reelwright/lambda:latest"
+
+      - run: |
+          docker build -f docker/render.Dockerfile \
+            -t "${{ steps.ecr.outputs.registry }}/reelwright/render-task:${{ github.sha }}" \
+            -t "${{ steps.ecr.outputs.registry }}/reelwright/render-task:latest" .
+          docker push "${{ steps.ecr.outputs.registry }}/reelwright/render-task:${{ github.sha }}"
+          docker push "${{ steps.ecr.outputs.registry }}/reelwright/render-task:latest"
