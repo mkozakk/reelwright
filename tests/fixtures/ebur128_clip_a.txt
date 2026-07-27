@@ -1,0 +1,161 @@
+# fixture captured against the pinned ffmpeg 7.0.2-static binary (docker/lambda.Dockerfile digest)
+# command: ffmpeg -y -loglevel verbose -i work/<job>/audio/src1.flac -filter:a ebur128 -f null -
+# input: audio extracted from assets/sample/clip_a.mp4 via renderer.probe.extract_audio_flac
+# everything below this header is real, unmodified ffmpeg stderr output -- do not hand-edit.
+ffmpeg version 7.0.2-static https://johnvansickle.com/ffmpeg/  Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 8 (Debian 8.3.0-6)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-debug --disable-ffplay --disable-indev=sndio --disable-outdev=sndio --cc=gcc --enable-fontconfig --enable-frei0r --enable-gnutls --enable-gmp --enable-libgme --enable-gray --enable-libaom --enable-libfribidi --enable-libass --enable-libvmaf --enable-libfreetype --enable-libmp3lame --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-librubberband --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libvorbis --enable-libopus --enable-libtheora --enable-libvidstab --enable-libvo-amrwbenc --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libdav1d --enable-libxvid --enable-libzvbi --enable-libzimg
+  libavutil      59.  8.100 / 59.  8.100
+  libavcodec     61.  3.100 / 61.  3.100
+  libavformat    61.  1.100 / 61.  1.100
+  libavdevice    61.  1.100 / 61.  1.100
+  libavfilter    10.  1.100 / 10.  1.100
+  libswscale      8.  1.100 /  8.  1.100
+  libswresample   5.  1.100 /  5.  1.100
+  libpostproc    58.  1.100 / 58.  1.100
+Input #0, flac, from '/tmp/claude-1000/-home-Michal-Projects-montage-pipeline/21d8917a-c14d-4e1d-90db-ab3ec9c12538/scratchpad/fixtures/clip_a.flac':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.1.100
+  Duration: 00:00:08.00, start: 0.000000, bitrate: 168 kb/s
+  Stream #0:0: Audio: flac, 16000 Hz, mono, s32 (24 bit)
+[out#0/null @ 0xab8b100] No explicit maps, mapping streams automatically...
+[aost#0:0/pcm_s16le @ 0xab88740] Created audio stream from input stream 0:0
+[Parsed_ebur128_0 @ 0xab8cc00] EBU +9 scale
+Stream mapping:
+  Stream #0:0 -> #0:0 (flac (native) -> pcm_s16le (native))
+[aost#0:0/pcm_s16le @ 0xab88740] Starting thread...
+[af#0:0 @ 0xab8b7c0] Starting thread...
+[aist#0:0/flac @ 0xab8a780] [dec:flac @ 0xab8d880] Starting thread...
+[in#0/flac @ 0xab84a40] Starting thread...
+Press [q] to stop, [?] for help
+[Parsed_ebur128_0 @ 0x7fcec4002a40] EBU +9 scale
+[graph_0_in_0:0 @ 0x7fcec4060d00] tb:1/16000 samplefmt:s32 samplerate:16000 chlayout:mono
+[Parsed_ebur128_0 @ 0x7fcec4002a40] auto-inserting filter 'auto_aresample_0' between the filter 'graph_0_in_0:0' and the filter 'Parsed_ebur128_0'
+[format_out_0_0 @ 0x7fcec4061ec0] auto-inserting filter 'auto_aresample_1' between the filter 'Parsed_ebur128_0' and the filter 'format_out_0_0'
+[auto_aresample_0 @ 0x7fcec4062640] ch:1 chl:mono fmt:s32 r:16000Hz -> ch:1 chl:mono fmt:dbl r:16000Hz
+[auto_aresample_1 @ 0x7fcec4078880] ch:1 chl:mono fmt:dbl r:16000Hz -> ch:1 chl:mono fmt:s16 r:16000Hz
+Output #0, null, to 'pipe:':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.1.100
+  Stream #0:0: Audio: pcm_s16le, 16000 Hz, mono, s16, 256 kb/s
+      Metadata:
+        encoder         : Lavc61.3.100 pcm_s16le
+[out#0/null @ 0xab8b100] Starting thread...
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.0999375  TARGET:-23 LUFS    M:-120.7 S:-120.7     I: -70.0 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.199938   TARGET:-23 LUFS    M:-120.7 S:-120.7     I: -70.0 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.299938   TARGET:-23 LUFS    M:-120.7 S:-120.7     I: -70.0 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.399938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.499938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.599938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.699937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.799937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.899938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 0.999938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.099938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.199938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.299937   TARGET:-23 LUFS    M: -21.6 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.399938   TARGET:-23 LUFS    M: -21.6 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.499937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.599938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.699938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.799937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.899938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 1.999938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.099938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.199937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.299937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.399938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.499938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.599938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.699937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.799937   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.899938   TARGET:-23 LUFS    M: -21.7 S:-120.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 2.999938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:  20.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.099938   TARGET:-23 LUFS    M: -21.6 S: -21.7     I: -21.7 LUFS       LRA:  20.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.199937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:  20.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.299937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:  20.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.399938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.499938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.599938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.699937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.799937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.899938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 3.999938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.099938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.199937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.299938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.399938   TARGET:-23 LUFS    M: -21.6 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.499937   TARGET:-23 LUFS    M: -21.6 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.599938   TARGET:-23 LUFS    M: -21.6 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.699937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.799938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.899938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 4.999937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.099938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.199937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.299938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.399938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.499937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.599938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.699937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.799938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.899938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[in#0/flac @ 0xab84a40] EOF while reading input
+[in#0/flac @ 0xab84a40] Terminating thread with return code 0 (success)
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 5.999937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.099938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.199937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.299938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.399938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.499937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[aist#0:0/flac @ 0xab8a780] [dec:flac @ 0xab8d880] Decoder thread received EOF packet
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.599938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.699937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.799938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.899938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 6.999938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.099938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.199937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.299938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.399938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[aist#0:0/flac @ 0xab8a780] [dec:flac @ 0xab8d880] Decoder returned EOF, finishing
+[aist#0:0/flac @ 0xab8a780] [dec:flac @ 0xab8d880] Terminating thread with return code 0 (success)
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.499938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.599938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.699937   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.799938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.899938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[Parsed_ebur128_0 @ 0x7fcec4002a40] t: 7.999938   TARGET:-23 LUFS    M: -21.7 S: -21.7     I: -21.7 LUFS       LRA:   0.0 LU
+[af#0:0 @ 0xab8b7c0] Filtergraph returned EOF, finishing
+[af#0:0 @ 0xab8b7c0] All consumers returned EOF
+[Parsed_ebur128_0 @ 0x7fcec4002a40] Summary:
+
+  Integrated loudness:
+    I:         -21.7 LUFS
+    Threshold: -31.7 LUFS
+
+  Loudness range:
+    LRA:         0.0 LU
+    Threshold: -41.7 LUFS
+    LRA low:   -21.7 LUFS
+    LRA high:  -21.7 LUFS
+[aost#0:0/pcm_s16le @ 0xab88740] Encoder thread received EOF
+[aost#0:0/pcm_s16le @ 0xab88740] Terminating thread with return code 0 (success)
+[out#0/null @ 0xab8b100] All streams finished
+[out#0/null @ 0xab8b100] Terminating thread with return code 0 (success)
+[af#0:0 @ 0xab8b7c0] Terminating thread with return code 0 (success)
+[out#0/null @ 0xab8b100] Output file #0 (pipe:):
+[out#0/null @ 0xab8b100]   Output stream #0:0 (audio): 112 frames encoded (128000 samples); 112 packets muxed (256000 bytes); 
+[out#0/null @ 0xab8b100]   Total: 112 packets (256000 bytes) muxed
+[out#0/null @ 0xab8b100] video:0KiB audio:250KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+size=N/A time=00:00:08.00 bitrate=N/A speed=1.78e+03x    
+[in#0/flac @ 0xab84a40] Input file #0 (/tmp/claude-1000/-home-Michal-Projects-montage-pipeline/21d8917a-c14d-4e1d-90db-ab3ec9c12538/scratchpad/fixtures/clip_a.flac):
+[in#0/flac @ 0xab84a40]   Input stream #0:0 (audio): 112 packets read (160351 bytes); 112 frames decoded; 0 decode errors (128000 samples); 
+[in#0/flac @ 0xab84a40]   Total: 112 packets (160351 bytes) demuxed
+[AVIOContext @ 0xab8dac0] Statistics: 168716 bytes read, 0 seeks

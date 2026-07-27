@@ -14,7 +14,7 @@ class ProbeRejected(RuntimeError):
         super().__init__("; ".join(errors))
 
 
-def run_probe(job_id: str, jobs_table: str, raw_bucket: str, work_bucket: str) -> None:
+def run_probe(job_id: str, jobs_table: str, raw_bucket: str, work_bucket: str) -> dict:
     job = dynamo.get_job(jobs_table, job_id)
     src_id, source = next(iter(job.sources.items()))  # single source in Phase 2
 
@@ -32,20 +32,18 @@ def run_probe(job_id: str, jobs_table: str, raw_bucket: str, work_bucket: str) -
         local_flac = extract_audio_flac(local_in, tmp_dir / f"{src_id}.flac")
         storage.upload(work_bucket, audio_key, local_flac)
 
-    dynamo.update_job(
-        jobs_table,
-        job_id,
-        analysis_keys={"audio": {src_id: audio_key}},
-        status="RENDERING",
-    )
+    dynamo.set_analysis_key(jobs_table, job_id, "audio", {src_id: audio_key})
+    # no status write here -- ANALYZING already covers the whole Analyze
+    # branch (Probe + the 3 parallel Analyze Lambdas) as of Phase 3.
+    return {"subtitles_enabled": job.prefs.get("subtitles_enabled", True)}
 
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    run_probe(
+    result = run_probe(
         job_id,
         jobs_table=os.environ["JOBS_TABLE"],
         raw_bucket=os.environ["RAW_BUCKET"],
         work_bucket=os.environ["WORK_BUCKET"],
     )
-    return {"job_id": job_id}
+    return {"job_id": job_id, **result}

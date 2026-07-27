@@ -20,3 +20,15 @@ def output_key(job_id: str) -> str:
 
 def thumbnail_key(job_id: str) -> str:
     return f"output/{job_id}/thumbnail.jpg"
+
+
+def work_loudness_key(job_id: str, src_id: str) -> str:
+    return f"work/{job_id}/loudness/{src_id}.json"
+
+
+def work_scenes_key(job_id: str, src_id: str) -> str:
+    return f"work/{job_id}/scenes/{src_id}.json"
+
+
+def work_transcript_key(job_id: str, src_id: str) -> str:
+    return f"work/{job_id}/transcript/{src_id}.json"
