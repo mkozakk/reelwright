@@ -67,8 +67,14 @@ data "aws_ecr_image" "lambda" {
   image_tag       = var.image_tag
 }
 
+data "aws_ecr_image" "analyze_transcribe" {
+  repository_name = aws_ecr_repository.analyze_transcribe.name
+  image_tag       = var.image_tag
+}
+
 locals {
-  lambda_image_uri = "${aws_ecr_repository.lambda.repository_url}@${data.aws_ecr_image.lambda.image_digest}"
+  lambda_image_uri             = "${aws_ecr_repository.lambda.repository_url}@${data.aws_ecr_image.lambda.image_digest}"
+  analyze_transcribe_image_uri = "${aws_ecr_repository.analyze_transcribe.repository_url}@${data.aws_ecr_image.analyze_transcribe.image_digest}"
 }
 
 resource "aws_lambda_function" "probe" {
@@ -92,6 +98,115 @@ resource "aws_lambda_function" "probe" {
     variables = {
       JOBS_TABLE  = aws_dynamodb_table.jobs.name
       RAW_BUCKET  = aws_s3_bucket.this["raw"].bucket
+      WORK_BUCKET = aws_s3_bucket.this["work"].bucket
+    }
+  }
+}
+
+resource "aws_lambda_function" "analyze_loudness" {
+  function_name = "${local.name_prefix}-analyze-loudness"
+  role          = aws_iam_role.analyze_loudness.arn
+  package_type  = "Image"
+  image_uri     = local.lambda_image_uri
+  timeout       = 60
+  memory_size   = 512
+
+  image_config {
+    command = ["services.analyze_loudness.handler.handler"]
+  }
+
+  vpc_config {
+    subnet_ids         = aws_subnet.private[*].id
+    security_group_ids = [aws_security_group.isolated_lambda.id]
+  }
+
+  environment {
+    variables = {
+      JOBS_TABLE  = aws_dynamodb_table.jobs.name
+      WORK_BUCKET = aws_s3_bucket.this["work"].bucket
+    }
+  }
+}
+
+# decodes raw, attacker-controlled video bytes directly (scdet needs frames,
+# the FLAC Probe already extracts is audio-only) -- same no-egress VPC
+# posture as probe/cut
+resource "aws_lambda_function" "analyze_scenes" {
+  function_name = "${local.name_prefix}-analyze-scenes"
+  role          = aws_iam_role.analyze_scenes.arn
+  package_type  = "Image"
+  image_uri     = local.lambda_image_uri
+  timeout       = 120
+  memory_size   = 1024
+
+  image_config {
+    command = ["services.analyze_scenes.handler.handler"]
+  }
+
+  vpc_config {
+    subnet_ids         = aws_subnet.private[*].id
+    security_group_ids = [aws_security_group.isolated_lambda.id]
+  }
+
+  environment {
+    variables = {
+      JOBS_TABLE  = aws_dynamodb_table.jobs.name
+      RAW_BUCKET  = aws_s3_bucket.this["raw"].bucket
+      WORK_BUCKET = aws_s3_bucket.this["work"].bucket
+    }
+  }
+}
+
+# own image: faster-whisper + baked model weights, irrelevant to every
+# other Lambda's cold start. Architecture pinned x86_64 pending an
+# arm64-vs-x86_64 benchmark -- see docker/transcribe.Dockerfile.
+# memory_size is 3008, not a rounder 4096, because this account's
+# per-function CreateFunction ceiling is 3008 MB (not the usual 10240) --
+# an account-level restriction, not a sizing decision. faster-whisper
+# `small` int8 still fits under 3 GB.
+resource "aws_lambda_function" "analyze_transcribe" {
+  function_name = "${local.name_prefix}-analyze-transcribe"
+  role          = aws_iam_role.analyze_transcribe.arn
+  package_type  = "Image"
+  image_uri     = local.analyze_transcribe_image_uri
+  architectures = ["x86_64"]
+  timeout       = 300
+  memory_size   = 3008
+
+  image_config {
+    command = ["services.analyze_transcribe.handler.handler"]
+  }
+
+  vpc_config {
+    subnet_ids         = aws_subnet.private[*].id
+    security_group_ids = [aws_security_group.isolated_lambda.id]
+  }
+
+  environment {
+    variables = {
+      JOBS_TABLE  = aws_dynamodb_table.jobs.name
+      WORK_BUCKET = aws_s3_bucket.this["work"].bucket
+      MODEL_DIR   = "/opt/whisper-model"
+    }
+  }
+}
+
+# no vpc_config -- only touches S3 JSON + DynamoDB, matching finish
+resource "aws_lambda_function" "plan" {
+  function_name = "${local.name_prefix}-plan"
+  role          = aws_iam_role.plan.arn
+  package_type  = "Image"
+  image_uri     = local.lambda_image_uri
+  timeout       = 30
+  memory_size   = 256
+
+  image_config {
+    command = ["services.plan.handler.handler"]
+  }
+
+  environment {
+    variables = {
+      JOBS_TABLE  = aws_dynamodb_table.jobs.name
       WORK_BUCKET = aws_s3_bucket.this["work"].bucket
     }
   }

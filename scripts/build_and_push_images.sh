@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# deploy order: terraform apply -target=aws_ecr_repository.lambda -target=aws_ecr_repository.render_task,
-# then this script, then a plain terraform apply
+# deploy order: terraform apply -target=aws_ecr_repository.lambda -target=aws_ecr_repository.render_task
+# -target=aws_ecr_repository.analyze_transcribe, then this script, then a plain terraform apply
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,4 +24,8 @@ aws ecr get-login-password --region "$REGION" | "$ENGINE" login --username AWS -
 "$ENGINE" build -f "$ROOT/docker/render.Dockerfile" -t "${REGISTRY}/${PROJECT}/render-task:${TAG}" "$ROOT"
 "$ENGINE" push "${REGISTRY}/${PROJECT}/render-task:${TAG}"
 
-echo "pushed ${REGISTRY}/${PROJECT}/lambda:${TAG} and ${REGISTRY}/${PROJECT}/render-task:${TAG}"
+# separate image, faster-whisper + baked model weights
+"$ENGINE" build -f "$ROOT/docker/transcribe.Dockerfile" -t "${REGISTRY}/${PROJECT}/analyze-transcribe:${TAG}" "$ROOT"
+"$ENGINE" push "${REGISTRY}/${PROJECT}/analyze-transcribe:${TAG}"
+
+echo "pushed ${REGISTRY}/${PROJECT}/lambda:${TAG}, ${REGISTRY}/${PROJECT}/render-task:${TAG}, and ${REGISTRY}/${PROJECT}/analyze-transcribe:${TAG}"

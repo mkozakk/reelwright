@@ -32,6 +32,10 @@ resource "aws_sfn_state_machine" "pipeline" {
 
   definition = templatefile("${path.module}/statemachine.asl.json.tpl", {
     probe_arn                  = aws_lambda_function.probe.arn
+    analyze_loudness_arn       = aws_lambda_function.analyze_loudness.arn
+    analyze_scenes_arn         = aws_lambda_function.analyze_scenes.arn
+    analyze_transcribe_arn     = aws_lambda_function.analyze_transcribe.arn
+    plan_arn                   = aws_lambda_function.plan.arn
     cut_prepare_arn            = aws_lambda_function.cut_prepare.arn
     cut_arn                    = aws_lambda_function.cut.arn
     semaphore_acquire_arn      = aws_lambda_function.semaphore_acquire.arn

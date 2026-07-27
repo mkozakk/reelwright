@@ -14,8 +14,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,services]"
-      - run: python -m pytest -m "not media" -q
-      - run: python -m pytest -m media -q
+      - run: python -m pytest -m "not media and not whisper" -q
+      - run: python -m pytest -m "media and not whisper" -q
 
   terraform-fmt:
     runs-on: ubuntu-latest

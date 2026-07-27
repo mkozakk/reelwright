@@ -1,5 +1,5 @@
 {
-  "Comment": "montage-pipeline: Probe -> Cut (Map) -> Render -> Finish",
+  "Comment": "montage-pipeline: Probe -> Analyze (Parallel) -> Plan -> Cut (Map) -> Render -> Finish",
   "StartAt": "Probe",
   "States": {
     "Probe": {
@@ -7,6 +7,87 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${probe_arn}",
+        "Payload.$": "$"
+      },
+      "ResultSelector": {
+        "job_id.$": "$.Payload.job_id",
+        "subtitles_enabled.$": "$.Payload.subtitles_enabled"
+      },
+      "ResultPath": "$",
+      "Next": "AnalyzeParallel",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "JobFailed" }]
+    },
+    "AnalyzeParallel": {
+      "Type": "Parallel",
+      "ResultPath": "$.analyze",
+      "Branches": [
+        {
+          "StartAt": "TranscribeChoice",
+          "States": {
+            "TranscribeChoice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.subtitles_enabled",
+                  "BooleanEquals": true,
+                  "Next": "Transcribe"
+                }
+              ],
+              "Default": "SkipTranscribe"
+            },
+            "Transcribe": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${analyze_transcribe_arn}",
+                "Payload.$": "$"
+              },
+              "End": true
+            },
+            "SkipTranscribe": {
+              "Type": "Pass",
+              "Result": { "skipped": true },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Loudness",
+          "States": {
+            "Loudness": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${analyze_loudness_arn}",
+                "Payload.$": "$"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Scenes",
+          "States": {
+            "Scenes": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${analyze_scenes_arn}",
+                "Payload.$": "$"
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "Next": "Plan",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "JobFailed" }]
+    },
+    "Plan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${plan_arn}",
         "Payload.$": "$"
       },
       "ResultSelector": { "job_id.$": "$.Payload.job_id" },
