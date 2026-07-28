@@ -19,6 +19,7 @@ class JobRecord:
     sources: dict[str, SourceRef] = field(default_factory=dict)
     prefs: dict = field(default_factory=dict)
     edit_plan: dict | None = None
+    planning: dict | None = None
     analysis_keys: dict = field(default_factory=dict)
     target_profile: dict | None = None
     output_key: str | None = None
