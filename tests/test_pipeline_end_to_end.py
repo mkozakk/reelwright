@@ -2,6 +2,7 @@ from pathlib import Path
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 
 from services.common import dynamo, s3keys
 from services.cut.handler import handler as cut_handler
@@ -19,6 +20,19 @@ STATE_MACHINE_DEFINITION = """
   "States": {"Done": {"Type": "Pass", "End": true}}
 }
 """
+
+# These e2e tests exercise the deterministic fallback path: Bedrock is not
+# reachable under moto, so BedrockPlanner is stubbed to raise as if the service
+# were unavailable, which is exactly the real trigger for the no-LLM fallback.
+class _UnavailableBedrock:
+    model_id = "amazon.nova-lite-v1:0"
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def generate(self, messages):
+        raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "no bedrock"}}, "Converse")
+
 
 # Phase 3: no more CANNED_PLAN -- the fallback planner is the only source of
 # edit_plan in this pipeline now, driven entirely by real loudness data.
@@ -171,7 +185,9 @@ def test_full_pipeline_with_subtitles_enabled_produces_a_fallback_plan_and_a_tra
     job = dynamo.get_job(aws_stack["jobs_table"], job_id)
     assert job.analysis_keys["transcript"]["src1"] == s3keys.work_transcript_key(job_id, "src1")
 
-    # 3. plan: fallback planner turns the loudness curve into a real edit_plan
+    # 3. plan: Bedrock unavailable -> fallback planner turns the loudness curve
+    # into a real edit_plan
+    monkeypatch.setattr("services.plan.handler.BedrockPlanner", _UnavailableBedrock)
     plan_handler({"job_id": job_id})
     job = dynamo.get_job(aws_stack["jobs_table"], job_id)
     assert job.status == "RENDERING"
@@ -204,6 +220,7 @@ def test_full_pipeline_with_subtitles_disabled_never_invokes_transcribe(
     # SkipTranscribe Pass branch (the real Choice-state behavior is only
     # verifiable post-deploy).
 
+    monkeypatch.setattr("services.plan.handler.BedrockPlanner", _UnavailableBedrock)
     plan_handler({"job_id": job_id})
     job = dynamo.get_job(aws_stack["jobs_table"], job_id)
     assert job.status == "RENDERING"
