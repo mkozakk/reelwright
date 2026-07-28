@@ -142,6 +142,149 @@ resource "aws_iam_role_policy" "cut" {
   })
 }
 
+resource "aws_iam_role" "analyze_loudness" {
+  name               = "${local.name_prefix}-analyze-loudness-lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "analyze_loudness_logs" {
+  role       = aws_iam_role.analyze_loudness.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "analyze_loudness_vpc" {
+  role       = aws_iam_role.analyze_loudness.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy" "analyze_loudness" {
+  name = "analyze-loudness"
+  role = aws_iam_role.analyze_loudness.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+        Resource = aws_dynamodb_table.jobs.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.this["work"].arn}/*"
+      }
+    ]
+  })
+}
+
+# decodes raw, attacker-controlled video bytes directly (scdet needs
+# frames) -- same no-egress VPC posture as probe/cut
+resource "aws_iam_role" "analyze_scenes" {
+  name               = "${local.name_prefix}-analyze-scenes-lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "analyze_scenes_logs" {
+  role       = aws_iam_role.analyze_scenes.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "analyze_scenes_vpc" {
+  role       = aws_iam_role.analyze_scenes.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy" "analyze_scenes" {
+  name = "analyze-scenes"
+  role = aws_iam_role.analyze_scenes.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+        Resource = aws_dynamodb_table.jobs.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.this["raw"].arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.this["work"].arn}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "analyze_transcribe" {
+  name               = "${local.name_prefix}-analyze-transcribe-lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "analyze_transcribe_logs" {
+  role       = aws_iam_role.analyze_transcribe.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "analyze_transcribe_vpc" {
+  role       = aws_iam_role.analyze_transcribe.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy" "analyze_transcribe" {
+  name = "analyze-transcribe"
+  role = aws_iam_role.analyze_transcribe.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+        Resource = aws_dynamodb_table.jobs.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.this["work"].arn}/*"
+      }
+    ]
+  })
+}
+
+# no VPC attachment -- only touches S3 JSON + DynamoDB, matching finish
+resource "aws_iam_role" "plan" {
+  name               = "${local.name_prefix}-plan-lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "plan_logs" {
+  role       = aws_iam_role.plan.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "plan" {
+  name = "plan"
+  role = aws_iam_role.plan.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+        Resource = aws_dynamodb_table.jobs.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.this["work"].arn}/*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "finish" {
   name               = "${local.name_prefix}-finish-lambda"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
@@ -261,6 +404,10 @@ resource "aws_iam_role_policy" "sfn" {
         Action = ["lambda:InvokeFunction"]
         Resource = [
           aws_lambda_function.probe.arn,
+          aws_lambda_function.analyze_loudness.arn,
+          aws_lambda_function.analyze_scenes.arn,
+          aws_lambda_function.analyze_transcribe.arn,
+          aws_lambda_function.plan.arn,
           aws_lambda_function.cut_prepare.arn,
           aws_lambda_function.cut.arn,
           aws_lambda_function.semaphore_acquire.arn,
