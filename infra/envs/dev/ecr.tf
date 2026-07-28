@@ -20,8 +20,24 @@ resource "aws_ecr_repository" "render_task" {
   }
 }
 
+# Whisper gets its own image -- faster-whisper + baked model weights are
+# multi-hundred-MB and irrelevant to every other Lambda's cold start.
+resource "aws_ecr_repository" "analyze_transcribe" {
+  name                 = "${var.project_name}/analyze-transcribe"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
 resource "aws_ecr_lifecycle_policy" "this" {
-  for_each   = { lambda = aws_ecr_repository.lambda.name, render_task = aws_ecr_repository.render_task.name }
+  for_each = {
+    lambda             = aws_ecr_repository.lambda.name,
+    render_task        = aws_ecr_repository.render_task.name,
+    analyze_transcribe = aws_ecr_repository.analyze_transcribe.name,
+  }
   repository = each.value
 
   policy = jsonencode({

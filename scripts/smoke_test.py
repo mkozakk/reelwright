@@ -24,24 +24,9 @@ TF_DIR = REPO_ROOT / "infra" / "envs" / "dev"
 POLL_INTERVAL_SECONDS = 10
 TIMEOUT_SECONDS = 20 * 60
 
-CANNED_PLAN = {
-    "version": "1",
-    "summary": "Phase 2 smoke-test plan",
-    "clips": [
-        {
-            "source": "src1",
-            "start": 0.5,
-            "end": 3.5,
-            "reason": "opening beat",
-            "transition_out": {"type": "crossfade", "duration": 0.5},
-        },
-        {"source": "src1", "start": 4.0, "end": 7.0, "reason": "closing beat"},
-    ],
-    "subtitles": {"enabled": False},
-    "color": {"preset": "cinematic", "adjust": {"contrast": 1.05, "saturation": 1.1}},
-    "audio": {"music_track": None, "duck_under_speech": False},
-    "output": {"aspect": "16:9", "resolution": "720p", "max_duration": 15},
-}
+# explicit, not relying on Probe's absent-key default -- exercises the
+# Transcribe branch deterministically rather than leaving it to the default
+PREFS = {"subtitles_enabled": True}
 
 
 def terraform_outputs() -> dict:
@@ -72,7 +57,7 @@ def main() -> int:
         Item={
             "pk": dynamo.job_pk(job_id),
             "status": "UPLOADING",
-            "prefs": {},
+            "prefs": PREFS,
             "sources": {
                 "src1": {
                     "key": raw_key,
@@ -81,7 +66,6 @@ def main() -> int:
                     "uploaded": True,
                 }
             },
-            "edit_plan": dynamo.to_decimal(CANNED_PLAN),
         }
     )
 
@@ -110,7 +94,7 @@ def main() -> int:
     print(f"output_key={job.output_key}")
     print(f"thumbnail_key={job.thumbnail_key}")
 
-    exec_name = execution_name(job_id, etag, hash_prefs({}))
+    exec_name = execution_name(job_id, etag, hash_prefs(PREFS))
     execution_arn = state_machine_arn.replace(":stateMachine:", ":execution:") + f":{exec_name}"
     sfn = boto3.client("stepfunctions")
     execution = sfn.describe_execution(executionArn=execution_arn)
