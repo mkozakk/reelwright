@@ -97,3 +97,21 @@ def conditional_status_flip(table_name: str, job_id: str, from_status: str, to_s
 
 def mark_failed(table_name: str, job_id: str, error: str) -> None:
     update_job(table_name, job_id, status="FAILED", error=error)
+
+
+def set_analysis_key(table_name: str, job_id: str, category: str, value: dict) -> None:
+    # Nested SET on one leaf, not update_job's blind top-level SET -- safe for
+    # concurrent Analyze branches writing different categories on the same item.
+    table = _table(table_name)
+    key = {PK: job_pk(job_id)}
+    table.update_item(
+        Key=key,
+        UpdateExpression="SET analysis_keys = if_not_exists(analysis_keys, :empty)",
+        ExpressionAttributeValues={":empty": {}},
+    )
+    table.update_item(
+        Key=key,
+        UpdateExpression="SET analysis_keys.#category = :val",
+        ExpressionAttributeNames={"#category": category},
+        ExpressionAttributeValues={":val": to_decimal(value)},
+    )

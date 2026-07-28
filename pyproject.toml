@@ -15,6 +15,9 @@ services = [
     "boto3>=1.34",
     "cryptography>=42",
 ]
+transcribe = [
+    "faster-whisper>=1.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["renderer*", "services*"]
@@ -22,6 +25,8 @@ include = ["renderer*", "services*"]
 [tool.pytest.ini_options]
 markers = [
     "media: requires ffmpeg/ffprobe and sample assets",
+    # not run by default CI -- run manually with `pytest -m whisper`
+    "whisper: requires faster-whisper and baked model weights",
 ]
 
 [build-system]
