@@ -20,33 +20,24 @@ STATE_MACHINE_DEFINITION = """
 }
 """
 
-# Phase 2's canned plan: single source (only one file is uploaded per job
-# until v1.2 sessions), a crossfade so Cut/Render's segment boundary is
-# actually exercised, subtitles off (see docs/phases/phase-2.md -- retiming
-# subtitles across cut segments isn't built until real transcripts land).
-CANNED_PLAN = {
-    "version": "1",
-    "summary": "Phase 2 canned plan",
-    "clips": [
-        {
-            "source": "src1",
-            "start": 0.5,
-            "end": 3.5,
-            "reason": "opening beat",
-            "transition_out": {"type": "crossfade", "duration": 0.5},
-        },
-        {"source": "src1", "start": 4.0, "end": 7.0, "reason": "closing beat"},
-    ],
-    "subtitles": {"enabled": False},
-    "color": {"preset": "cinematic", "adjust": {"contrast": 1.05, "saturation": 1.1}},
-    "audio": {"music_track": None, "duck_under_speech": False},
-    "output": {"aspect": "16:9", "resolution": "720p", "max_duration": 15},
-}
+# Phase 3: no more CANNED_PLAN -- the fallback planner is the only source of
+# edit_plan in this pipeline now, driven entirely by real loudness data.
+_CANNED_TRANSCRIBE_SEGMENTS = [
+    {
+        "start": 0.5,
+        "end": 1.5,
+        "text": "hello world",
+        "avg_logprob": -0.2,
+        "no_speech_prob": 0.05,
+        "words": [
+            {"start": 0.5, "end": 1.0, "word": "hello", "probability": 0.9},
+            {"start": 1.0, "end": 1.5, "word": "world", "probability": 0.85},
+        ],
+    }
+]
 
 
-@pytest.mark.media
-def test_full_pipeline_trigger_probe_cut_render_finish(aws_stack, monkeypatch, rsa_sha1_signing_available):
-    job_id = "job1"
+def _seed_uploading_job(aws_stack, job_id: str, prefs: dict) -> str:
     raw_key = s3keys.raw_key(job_id, "src1")
     clip_path = SAMPLE_DIR / "clip_a.mp4"
 
@@ -58,7 +49,7 @@ def test_full_pipeline_trigger_probe_cut_render_finish(aws_stack, monkeypatch, r
         Item={
             "pk": dynamo.job_pk(job_id),
             "status": "UPLOADING",
-            "prefs": {},
+            "prefs": dynamo.to_decimal(prefs),
             "sources": {
                 "src1": {
                     "key": raw_key,
@@ -67,10 +58,14 @@ def test_full_pipeline_trigger_probe_cut_render_finish(aws_stack, monkeypatch, r
                     "uploaded": True,
                 }
             },
-            "edit_plan": dynamo.to_decimal(CANNED_PLAN),
+            # deliberately no edit_plan seeded -- the whole point of Phase 3
+            # is that the fallback planner produces it from real signals.
         }
     )
+    return raw_key
 
+
+def _start_execution_and_probe(aws_stack, monkeypatch, job_id: str, raw_key: str) -> dict:
     sfn = boto3.client("stepfunctions", region_name="us-east-1")
     state_machine = sfn.create_state_machine(
         name="montage-pipeline",
@@ -84,7 +79,6 @@ def test_full_pipeline_trigger_probe_cut_render_finish(aws_stack, monkeypatch, r
     monkeypatch.setenv("WORK_BUCKET", aws_stack["work_bucket"])
     monkeypatch.setenv("OUTPUT_BUCKET", aws_stack["output_bucket"])
 
-    # 1. trigger: S3 upload -> conditional status flip -> StartExecution
     trigger_event = {
         "detail": {
             "bucket": {"name": aws_stack["raw_bucket"]},
@@ -95,23 +89,23 @@ def test_full_pipeline_trigger_probe_cut_render_finish(aws_stack, monkeypatch, r
     assert trigger_result == {"job_id": job_id, "started": True}
     assert dynamo.get_job(aws_stack["jobs_table"], job_id).status == "ANALYZING"
 
-    # 2. probe: validate + extract audio
-    probe_handler({"job_id": job_id})
+    probe_result = probe_handler({"job_id": job_id})
     job = dynamo.get_job(aws_stack["jobs_table"], job_id)
-    assert job.status == "RENDERING"
-    assert job.analysis_keys["audio"]["src1"] == s3keys.work_audio_key(job_id, "src1")
+    assert job.status == "ANALYZING"  # Probe no longer flips status on success (Phase 3)
+    return probe_result
 
-    # 3. cut: one Map-state invocation per clip, exactly as Step Functions would fan out
-    for index in range(len(CANNED_PLAN["clips"])):
+
+def _run_cut_render_finish(aws_stack, job_id: str, rsa_sha1_signing_available: bool) -> None:
+    plan = dynamo.get_job(aws_stack["jobs_table"], job_id).edit_plan
+
+    for index in range(len(plan["clips"])):
         cut_result = cut_handler({"job_id": job_id, "clip_indices": [index]})
         assert cut_result["clips"][0]["index"] == index
 
-    listing = s3.list_objects_v2(
-        Bucket=aws_stack["work_bucket"], Prefix=s3keys.work_clips_prefix(job_id)
-    )
-    assert listing["KeyCount"] == len(CANNED_PLAN["clips"])
+    s3 = boto3.client("s3", region_name="us-east-1")
+    listing = s3.list_objects_v2(Bucket=aws_stack["work_bucket"], Prefix=s3keys.work_clips_prefix(job_id))
+    assert listing["KeyCount"] == len(plan["clips"])
 
-    # 4. render: concat the cut segments with the crossfade + color grade
     render_result = run_render_job(
         job_id,
         jobs_table=aws_stack["jobs_table"],
@@ -121,8 +115,6 @@ def test_full_pipeline_trigger_probe_cut_render_finish(aws_stack, monkeypatch, r
     assert render_result.output_key == s3keys.output_key(job_id)
     assert dynamo.get_job(aws_stack["jobs_table"], job_id).output_key == render_result.output_key
 
-    # 5. finish: verify, thumbnail, sign, DONE -- steps 1-4 above are fully
-    # verified regardless; only this last step needs real RSA+SHA1 signing.
     if not rsa_sha1_signing_available:
         pytest.skip("this OpenSSL build's crypto policy disables RSA+SHA1 signing")
 
@@ -143,6 +135,81 @@ def test_full_pipeline_trigger_probe_cut_render_finish(aws_stack, monkeypatch, r
     assert output_head["ContentLength"] > 0
     thumb_head = s3.head_object(Bucket=aws_stack["output_bucket"], Key=job.thumbnail_key)
     assert thumb_head["ContentLength"] > 0
+
+
+@pytest.mark.media
+def test_full_pipeline_with_subtitles_enabled_produces_a_fallback_plan_and_a_transcript(
+    aws_stack, monkeypatch, rsa_sha1_signing_available
+):
+    job_id = "job1"
+    raw_key = _seed_uploading_job(
+        aws_stack, job_id, prefs={"subtitles_enabled": True, "max_duration": 18.0}
+    )
+    probe_result = _start_execution_and_probe(aws_stack, monkeypatch, job_id, raw_key)
+    assert probe_result == {"job_id": job_id, "subtitles_enabled": True}
+
+    from services.analyze_loudness.handler import handler as analyze_loudness_handler
+    from services.analyze_scenes.handler import handler as analyze_scenes_handler
+    import services.analyze_transcribe.handler as analyze_transcribe_handler
+    from services.plan.handler import handler as plan_handler
+
+    # 2a/2b. loudness + scenes always run, real ffmpeg, real sample clip
+    analyze_loudness_handler({"job_id": job_id})
+    analyze_scenes_handler({"job_id": job_id})
+
+    # 2c. transcribe: subtitles_enabled is True so this branch runs too --
+    # run_transcription is monkeypatched to avoid needing a real Whisper
+    # model (that round trip is covered separately by the whisper-marked test).
+    monkeypatch.setattr(
+        analyze_transcribe_handler,
+        "run_transcription",
+        lambda audio_path, model_dir: _CANNED_TRANSCRIBE_SEGMENTS,
+    )
+    monkeypatch.setenv("MODEL_DIR", "/opt/whisper-model")
+    analyze_transcribe_handler.handler({"job_id": job_id})
+
+    job = dynamo.get_job(aws_stack["jobs_table"], job_id)
+    assert job.analysis_keys["transcript"]["src1"] == s3keys.work_transcript_key(job_id, "src1")
+
+    # 3. plan: fallback planner turns the loudness curve into a real edit_plan
+    plan_handler({"job_id": job_id})
+    job = dynamo.get_job(aws_stack["jobs_table"], job_id)
+    assert job.status == "RENDERING"
+    assert job.edit_plan["summary"] == "Fallback plan (no-LLM): top loudness peaks"
+    assert all("loudness peak" in clip["reason"] for clip in job.edit_plan["clips"])
+
+    # 4-5. cut -> render -> finish, unchanged from Phase 2
+    _run_cut_render_finish(aws_stack, job_id, rsa_sha1_signing_available)
+
+
+@pytest.mark.media
+def test_full_pipeline_with_subtitles_disabled_never_invokes_transcribe(
+    aws_stack, monkeypatch, rsa_sha1_signing_available
+):
+    job_id = "job1"
+    raw_key = _seed_uploading_job(
+        aws_stack, job_id, prefs={"subtitles_enabled": False, "max_duration": 18.0}
+    )
+    probe_result = _start_execution_and_probe(aws_stack, monkeypatch, job_id, raw_key)
+    assert probe_result == {"job_id": job_id, "subtitles_enabled": False}
+
+    from services.analyze_loudness.handler import handler as analyze_loudness_handler
+    from services.analyze_scenes.handler import handler as analyze_scenes_handler
+    from services.plan.handler import handler as plan_handler
+
+    analyze_loudness_handler({"job_id": job_id})
+    analyze_scenes_handler({"job_id": job_id})
+    # analyze_transcribe is deliberately never called here -- this is the
+    # Python-level proxy for the Step Functions TranscribeChoice's
+    # SkipTranscribe Pass branch (the real Choice-state behavior is only
+    # verifiable post-deploy).
+
+    plan_handler({"job_id": job_id})
+    job = dynamo.get_job(aws_stack["jobs_table"], job_id)
+    assert job.status == "RENDERING"
+    assert "transcript" not in job.analysis_keys
+
+    _run_cut_render_finish(aws_stack, job_id, rsa_sha1_signing_available)
 
 
 def _throwaway_keypair() -> bytes:
