@@ -31,6 +31,8 @@ def run_plan(
     model_id: str = DEFAULT_MODEL_ID,
     region: str | None = None,
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    guardrail_id: str | None = None,
+    guardrail_version: str | None = None,
 ) -> None:
     dynamo.update_job(jobs_table, job_id, status="PLANNING")
 
@@ -46,7 +48,13 @@ def run_plan(
     evidence = evidence_mod.build_evidence(loudness, scenes, transcript)
     prompt_prefs = evidence_mod.prefs_for_prompt(job.prefs)
 
-    planner = planner or BedrockPlanner(model_id, region, max_output_tokens)
+    planner = planner or BedrockPlanner(
+        model_id,
+        region,
+        max_output_tokens,
+        guardrail_id=guardrail_id,
+        guardrail_version=guardrail_version,
+    )
     plan, meta = _plan_with_llm(planner, evidence, prompt_prefs, job.prefs)
 
     if plan is None:
@@ -135,5 +143,7 @@ def handler(event: dict, context=None) -> dict:
         model_id=os.environ.get("NOVA_MODEL_ID", DEFAULT_MODEL_ID),
         region=os.environ.get("BEDROCK_REGION"),
         max_output_tokens=int(os.environ.get("PLAN_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS)),
+        guardrail_id=os.environ.get("GUARDRAIL_ID") or None,
+        guardrail_version=os.environ.get("GUARDRAIL_VERSION") or None,
     )
     return {"job_id": job_id}
