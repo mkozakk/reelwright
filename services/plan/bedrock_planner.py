@@ -14,11 +14,15 @@ class BedrockPlanner:
         region: str | None = None,
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE,
+        guardrail_id: str | None = None,
+        guardrail_version: str | None = None,
         client=None,
     ):
         self.model_id = model_id
         self.max_output_tokens = max_output_tokens
         self.temperature = temperature
+        self.guardrail_id = guardrail_id
+        self.guardrail_version = guardrail_version
         self._client = client
         self._region = region
         self._tool_schema = schema_tool.edit_plan_tool_schema()
@@ -32,15 +36,15 @@ class BedrockPlanner:
         return self._client
 
     def generate(self, messages: list[dict]) -> tuple[dict | None, dict]:
-        resp = self.client.converse(
-            modelId=self.model_id,
-            system=[{"text": prompt.SYSTEM_PROMPT}],
-            messages=messages,
-            inferenceConfig={
+        kwargs = {
+            "modelId": self.model_id,
+            "system": [{"text": prompt.SYSTEM_PROMPT}],
+            "messages": messages,
+            "inferenceConfig": {
                 "maxTokens": self.max_output_tokens,
                 "temperature": self.temperature,
             },
-            toolConfig={
+            "toolConfig": {
                 "tools": [
                     {
                         "toolSpec": {
@@ -52,7 +56,14 @@ class BedrockPlanner:
                 ],
                 "toolChoice": {"tool": {"name": schema_tool.TOOL_NAME}},
             },
-        )
+        }
+        if self.guardrail_id:
+            kwargs["guardrailConfig"] = {
+                "guardrailIdentifier": self.guardrail_id,
+                "guardrailVersion": self.guardrail_version or "DRAFT",
+            }
+
+        resp = self.client.converse(**kwargs)
         usage = resp.get("usage", {})
         return _tool_input(resp), {
             "input_tokens": usage.get("inputTokens", 0),
