@@ -57,6 +57,7 @@ def get_job(table_name: str, job_id: str) -> JobRecord:
         sources=sources,
         prefs=dict(item.get("prefs", {})),
         edit_plan=item.get("edit_plan"),
+        planning=item.get("planning"),
         analysis_keys=dict(item.get("analysis_keys", {})),
         target_profile=item.get("target_profile"),
         output_key=item.get("output_key"),
