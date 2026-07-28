@@ -280,6 +280,16 @@ resource "aws_iam_role_policy" "plan" {
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
         Resource = "${aws_s3_bucket.this["work"].arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel"]
+        Resource = "arn:aws:bedrock:${var.bedrock_region}::foundation-model/${var.nova_model_id}"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:ApplyGuardrail"]
+        Resource = aws_bedrock_guardrail.planning.guardrail_arn
       }
     ]
   })
