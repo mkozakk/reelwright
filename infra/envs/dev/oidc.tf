@@ -64,8 +64,59 @@ resource "aws_iam_role_policy" "github_actions_ecr_push" {
           "ecr:UploadLayerPart",
           "ecr:CompleteLayerUpload",
         ]
-        Resource = [aws_ecr_repository.lambda.arn, aws_ecr_repository.render_task.arn]
+        Resource = [
+          aws_ecr_repository.lambda.arn,
+          aws_ecr_repository.render_task.arn,
+          aws_ecr_repository.analyze_transcribe.arn,
+        ]
       }
     ]
   })
+}
+
+# separate, more-powerful role for `terraform apply` from CI. Its trust is
+# locked to the protected GitHub Environment (sub = repo:owner/repo:environment:
+# <env>), so the environment's required-reviewer approval is literally what
+# grants write access -- the plan/build role above stays read-only. Broad
+# managed policies are acceptable here precisely because nothing can assume this
+# role without passing the human approval gate.
+data "aws_iam_policy_document" "github_deploy_assume" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repository}:environment:${var.environment}"]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_actions_deploy" {
+  name               = "${local.name_prefix}-github-actions-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_deploy_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_deploy_power" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
+}
+
+# PowerUserAccess deliberately excludes IAM writes; terraform apply here
+# creates roles/policies, so IAM management is granted on top.
+resource "aws_iam_role_policy_attachment" "github_deploy_iam" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
 }
