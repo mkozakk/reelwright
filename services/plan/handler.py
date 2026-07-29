@@ -18,6 +18,7 @@ from renderer.edit_plan.validate import (
 from renderer.presets import music as music_presets
 from services.common import dynamo, storage
 from services.common.logging import get_logger, log_job
+from services.common.tracing import segment
 
 from . import evidence as evidence_mod
 from . import fallback_planner, prompt
@@ -228,7 +229,7 @@ def _load(analysis_keys: dict, category: str, src_id: str, work_bucket: str, tmp
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    with log_job(__name__, job_id):
+    with log_job(__name__, job_id), segment(__name__, job_id):
         run_plan(
             job_id,
             jobs_table=os.environ["JOBS_TABLE"],

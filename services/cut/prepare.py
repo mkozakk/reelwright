@@ -5,6 +5,7 @@ import os
 from renderer.edit_plan.models import EditPlan
 from services.common import dynamo
 from services.common.logging import log_job
+from services.common.tracing import segment
 
 CLIP_BATCH_SIZE = 5
 
@@ -20,7 +21,7 @@ def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
     jobs_table = os.environ["JOBS_TABLE"]
 
-    with log_job(__name__, job_id):
+    with log_job(__name__, job_id), segment(__name__, job_id):
         dynamo.start_step(jobs_table, job_id, "cut")
         job = dynamo.get_job(jobs_table, job_id)
         plan = EditPlan.model_validate(job.edit_plan)

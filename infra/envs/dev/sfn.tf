@@ -70,4 +70,8 @@ resource "aws_sfn_state_machine" "pipeline" {
     include_execution_data = true
     level                  = "ERROR"
   }
+
+  tracing_configuration {
+    enabled = true
+  }
 }

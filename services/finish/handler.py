@@ -9,6 +9,7 @@ from renderer.probe import probe_file
 from renderer.thumbnail import extract_thumbnail
 from services.common import dynamo, s3keys, storage
 from services.common.logging import log_job
+from services.common.tracing import segment
 
 from . import cloudfront_sign
 
@@ -55,7 +56,7 @@ def run_finish(
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    with log_job(__name__, job_id):
+    with log_job(__name__, job_id), segment(__name__, job_id):
         signed_url = run_finish(
             job_id,
             jobs_table=os.environ["JOBS_TABLE"],

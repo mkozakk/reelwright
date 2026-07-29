@@ -11,6 +11,7 @@ from renderer.edit_plan.models import EditPlan
 from renderer.edit_plan.validate import EditPlanValidationError, validate_plan
 from services.common import dynamo, s3keys
 from services.common.logging import get_logger
+from services.common.tracing import segment
 
 from ..finish import cloudfront_sign
 from . import logic
@@ -95,14 +96,15 @@ def _create_job(event: dict) -> dict:
         raise logic.ApiError(429, "daily job limit reached for this account")
 
     job_id = logic.new_job_id()
-    key = s3keys.raw_key(job_id, logic.SRC_ID)
-    dynamo.put_new_job(
-        jobs_table, logic.build_job_item(job_id, logic.SRC_ID, key, request, created, user_id)
-    )
-    get_logger(__name__, job_id).info("job created")
+    with segment(__name__, job_id):
+        key = s3keys.raw_key(job_id, logic.SRC_ID)
+        dynamo.put_new_job(
+            jobs_table, logic.build_job_item(job_id, logic.SRC_ID, key, request, created, user_id)
+        )
+        get_logger(__name__, job_id).info("job created")
 
-    body = {"job_id": job_id, "status": "UPLOADING"}
-    body.update(_presign_upload(key, request))
+        body = {"job_id": job_id, "status": "UPLOADING"}
+        body.update(_presign_upload(key, request))
     return _respond(201, body)
 
 
@@ -119,14 +121,15 @@ def _owned_job(event: dict, job_id: str):
 
 
 def _complete_upload(event: dict, job_id: str) -> dict:
-    _owned_job(event, job_id)
-    request = logic.validate_complete_request(logic.parse_body(event.get("body")))
-    boto3.client("s3").complete_multipart_upload(
-        Bucket=os.environ["RAW_BUCKET"],
-        Key=s3keys.raw_key(job_id, logic.SRC_ID),
-        UploadId=request["upload_id"],
-        MultipartUpload={"Parts": request["parts"]},
-    )
+    with segment(__name__, job_id):
+        _owned_job(event, job_id)
+        request = logic.validate_complete_request(logic.parse_body(event.get("body")))
+        boto3.client("s3").complete_multipart_upload(
+            Bucket=os.environ["RAW_BUCKET"],
+            Key=s3keys.raw_key(job_id, logic.SRC_ID),
+            UploadId=request["upload_id"],
+            MultipartUpload={"Parts": request["parts"]},
+        )
     return _respond(200, {"job_id": job_id, "status": "UPLOADING"})
 
 
@@ -141,53 +144,56 @@ def _sign(key: str) -> str:
 
 
 def _get_job(event: dict, job_id: str) -> dict:
-    job = _owned_job(event, job_id)
+    with segment(__name__, job_id):
+        job = _owned_job(event, job_id)
 
-    body = logic.status_response(job)
-    if job.status == "DONE" and job.output_key:
-        body["output_url"] = _sign(job.output_key)
-        if job.thumbnail_key:
-            body["thumbnail_url"] = _sign(job.thumbnail_key)
-        body["expires_in"] = logic.PLAYBACK_URL_TTL
+        body = logic.status_response(job)
+        if job.status == "DONE" and job.output_key:
+            body["output_url"] = _sign(job.output_key)
+            if job.thumbnail_key:
+                body["thumbnail_url"] = _sign(job.thumbnail_key)
+            body["expires_in"] = logic.PLAYBACK_URL_TTL
     return _respond(200, body)
 
 
 def _rerender(event: dict, job_id: str) -> dict:
-    job = _owned_job(event, job_id)
-    jobs_table = os.environ["JOBS_TABLE"]
+    with segment(__name__, job_id):
+        job = _owned_job(event, job_id)
+        jobs_table = os.environ["JOBS_TABLE"]
 
-    body = logic.parse_body(event.get("body"))
-    try:
-        plan = validate_plan(EditPlan.model_validate(body))
-    except (ValidationError, EditPlanValidationError) as exc:
-        raise logic.ApiError(400, f"invalid edit plan: {exc}")
+        body = logic.parse_body(event.get("body"))
+        try:
+            plan = validate_plan(EditPlan.model_validate(body))
+        except (ValidationError, EditPlanValidationError) as exc:
+            raise logic.ApiError(400, f"invalid edit plan: {exc}")
 
-    created = logic.now()
-    if not dynamo.claim_user_slot(
-        jobs_table, job.user_id, logic.cap_day(created), logic.USER_DAILY_CAP, logic.cap_ttl(created)
-    ):
-        # a re-render is a render -- it counts against the same daily quota
-        raise logic.ApiError(429, "daily job limit reached for this account")
+        created = logic.now()
+        if not dynamo.claim_user_slot(
+            jobs_table, job.user_id, logic.cap_day(created), logic.USER_DAILY_CAP, logic.cap_ttl(created)
+        ):
+            # a re-render is a render -- it counts against the same daily quota
+            raise logic.ApiError(429, "daily job limit reached for this account")
 
-    edit_plan_json = plan.model_dump_json()
-    dynamo.update_job(jobs_table, job_id, edit_plan=json.loads(edit_plan_json), status="RENDERING")
+        edit_plan_json = plan.model_dump_json()
+        dynamo.update_job(jobs_table, job_id, edit_plan=json.loads(edit_plan_json), status="RENDERING")
 
-    sfn = boto3.client("stepfunctions")
-    try:
-        sfn.start_execution(
-            stateMachineArn=os.environ["STATE_MACHINE_ARN"],
-            name=logic.rerender_execution_name(job_id, edit_plan_json),
-            input=json.dumps({"job_id": job_id, "mode": "rerender"}),
-        )
-    except sfn.exceptions.ExecutionAlreadyExists:
-        pass
+        sfn = boto3.client("stepfunctions")
+        try:
+            sfn.start_execution(
+                stateMachineArn=os.environ["STATE_MACHINE_ARN"],
+                name=logic.rerender_execution_name(job_id, edit_plan_json),
+                input=json.dumps({"job_id": job_id, "mode": "rerender"}),
+            )
+        except sfn.exceptions.ExecutionAlreadyExists:
+            pass
 
-    get_logger(__name__, job_id).info("rerender started")
+        get_logger(__name__, job_id).info("rerender started")
     return _respond(202, {"job_id": job_id, "status": "RENDERING"})
 
 
 def _list_jobs(event: dict) -> dict:
-    jobs = dynamo.list_jobs_for_user(os.environ["JOBS_TABLE"], logic.user_id_from_claims(event))
+    with segment(__name__, None):
+        jobs = dynamo.list_jobs_for_user(os.environ["JOBS_TABLE"], logic.user_id_from_claims(event))
     return _respond(200, {"jobs": jobs})
 
 

@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -7,6 +8,12 @@ from moto import mock_aws
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
+
+# must be set before any services.* module imports services.common.tracing,
+# which calls patch_all() at import time -- otherwise the patched boto3
+# clients try to record real X-Ray segments against a context that doesn't
+# exist under moto.
+os.environ["AWS_XRAY_SDK_ENABLED"] = "false"
 
 OUT_DIR = REPO_ROOT / "out"
 SAMPLE_DIR = REPO_ROOT / "assets" / "sample"
