@@ -7,6 +7,7 @@ from pathlib import Path
 from renderer.probe import extract_audio_flac, probe_file, validate_probe
 from services.common import dynamo, s3keys, storage
 from services.common.logging import log_job
+from services.common.tracing import segment
 
 
 class ProbeRejected(RuntimeError):
@@ -43,7 +44,7 @@ def run_probe(job_id: str, jobs_table: str, raw_bucket: str, work_bucket: str) -
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    with log_job(__name__, job_id):
+    with log_job(__name__, job_id), segment(__name__, job_id):
         result = run_probe(
             job_id,
             jobs_table=os.environ["JOBS_TABLE"],

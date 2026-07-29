@@ -10,6 +10,7 @@ from renderer.ffmpeg_run import run_ffmpeg
 from renderer.segments import build_segment_plan, clip_output_duration
 from services.common import cutcache, dynamo, s3keys, storage
 from services.common.logging import log_job
+from services.common.tracing import segment
 
 
 def run_cut(
@@ -62,7 +63,7 @@ def run_cut(
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    with log_job(__name__, job_id):
+    with log_job(__name__, job_id), segment(__name__, job_id):
         clips = run_cut(
             job_id,
             event["clip_indices"],

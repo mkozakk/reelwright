@@ -41,6 +41,11 @@ resource "aws_iam_role_policy_attachment" "trigger_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "trigger_xray" {
+  role       = aws_iam_role.trigger.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 resource "aws_iam_role_policy" "trigger" {
   name = "trigger"
   role = aws_iam_role.trigger.id
@@ -74,6 +79,11 @@ resource "aws_iam_role_policy_attachment" "probe_logs" {
 resource "aws_iam_role_policy_attachment" "probe_vpc" {
   role       = aws_iam_role.probe.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "probe_xray" {
+  role       = aws_iam_role.probe.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 resource "aws_iam_role_policy" "probe" {
@@ -117,6 +127,11 @@ resource "aws_iam_role_policy_attachment" "cut_vpc" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "cut_xray" {
+  role       = aws_iam_role.cut.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 resource "aws_iam_role_policy" "cut" {
   name = "cut"
   role = aws_iam_role.cut.id
@@ -157,6 +172,11 @@ resource "aws_iam_role_policy_attachment" "analyze_loudness_vpc" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "analyze_loudness_xray" {
+  role       = aws_iam_role.analyze_loudness.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 resource "aws_iam_role_policy" "analyze_loudness" {
   name = "analyze-loudness"
   role = aws_iam_role.analyze_loudness.id
@@ -192,6 +212,11 @@ resource "aws_iam_role_policy_attachment" "analyze_scenes_logs" {
 resource "aws_iam_role_policy_attachment" "analyze_scenes_vpc" {
   role       = aws_iam_role.analyze_scenes.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "analyze_scenes_xray" {
+  role       = aws_iam_role.analyze_scenes.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 resource "aws_iam_role_policy" "analyze_scenes" {
@@ -234,6 +259,11 @@ resource "aws_iam_role_policy_attachment" "analyze_transcribe_vpc" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "analyze_transcribe_xray" {
+  role       = aws_iam_role.analyze_transcribe.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 resource "aws_iam_role_policy" "analyze_transcribe" {
   name = "analyze-transcribe"
   role = aws_iam_role.analyze_transcribe.id
@@ -263,6 +293,11 @@ resource "aws_iam_role" "plan" {
 resource "aws_iam_role_policy_attachment" "plan_logs" {
   role       = aws_iam_role.plan.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "plan_xray" {
+  role       = aws_iam_role.plan.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 resource "aws_iam_role_policy" "plan" {
@@ -305,6 +340,11 @@ resource "aws_iam_role_policy_attachment" "finish_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "finish_xray" {
+  role       = aws_iam_role.finish.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 resource "aws_iam_role_policy" "finish" {
   name = "finish"
   role = aws_iam_role.finish.id
@@ -337,6 +377,11 @@ resource "aws_iam_role" "job_api" {
 resource "aws_iam_role_policy_attachment" "job_api_logs" {
   role       = aws_iam_role.job_api.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "job_api_xray" {
+  role       = aws_iam_role.job_api.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 resource "aws_iam_role_policy" "job_api" {
@@ -377,6 +422,11 @@ resource "aws_iam_role" "semaphore" {
 resource "aws_iam_role_policy_attachment" "semaphore_logs" {
   role       = aws_iam_role.semaphore.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "semaphore_xray" {
+  role       = aws_iam_role.semaphore.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 resource "aws_iam_role_policy" "semaphore" {
@@ -430,6 +480,14 @@ resource "aws_iam_role_policy" "render_task" {
       }
     ]
   })
+}
+
+# X-Ray daemon sidecar (ecs.tf) sends trace data under the task role, not the
+# execution role -- it's application traffic from inside the task, not an ECS
+# control-plane action.
+resource "aws_iam_role_policy_attachment" "render_task_xray" {
+  role       = aws_iam_role.render_task.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 resource "aws_iam_role" "render_task_execution" {
@@ -516,4 +574,11 @@ resource "aws_iam_role_policy" "sfn" {
       }
     ]
   })
+}
+
+# required by the state machine's tracing_configuration -- Step Functions
+# itself writes the pipeline's root X-Ray segment
+resource "aws_iam_role_policy_attachment" "sfn_xray" {
+  role       = aws_iam_role.sfn.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }

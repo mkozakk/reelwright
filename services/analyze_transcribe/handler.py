@@ -8,6 +8,7 @@ from pathlib import Path
 from renderer.transcribe import filter_segments, run_transcription, words_from_segments
 from services.common import dynamo, s3keys, storage
 from services.common.logging import log_job
+from services.common.tracing import segment
 
 
 def run_analyze_transcribe(job_id: str, jobs_table: str, work_bucket: str, model_dir: str) -> None:
@@ -49,7 +50,7 @@ def run_analyze_transcribe(job_id: str, jobs_table: str, work_bucket: str, model
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    with log_job(__name__, job_id):
+    with log_job(__name__, job_id), segment(__name__, job_id):
         run_analyze_transcribe(
             job_id,
             jobs_table=os.environ["JOBS_TABLE"],

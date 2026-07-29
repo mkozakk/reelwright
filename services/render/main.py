@@ -11,6 +11,7 @@ from renderer.ffmpeg_run import run_ffmpeg
 from renderer.segments import build_concat_plan, clip_output_duration
 from services.common import dynamo, s3keys, storage
 from services.common.logging import get_logger
+from services.common.tracing import segment
 
 
 @dataclass
@@ -65,7 +66,8 @@ def main(job_id: str | None = None) -> int:
     log = get_logger(__name__, job_id)
     log.info("render started")
     try:
-        run_render_job(job_id, jobs_table, work_bucket, output_bucket)
+        with segment(__name__, job_id):
+            run_render_job(job_id, jobs_table, work_bucket, output_bucket)
     except Exception as exc:
         log.exception("render failed")
         dynamo.mark_failed(jobs_table, job_id, str(exc))
