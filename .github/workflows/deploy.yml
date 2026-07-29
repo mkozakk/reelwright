@@ -1,6 +1,9 @@
 name: deploy
 
-# no apply job here on purpose -- terraform apply stays a manual, local step
+# terraform apply runs only through the `apply` job below, which is pinned to
+# the `dev` GitHub Environment -- its required-reviewer approval is the gate,
+# and only that job can assume the write-capable deploy role (OIDC sub is
+# scoped to environment:dev). plan + image build stay ungated.
 on:
   push:
     branches: [main]
@@ -14,6 +17,7 @@ env:
   AWS_REGION: eu-north-1
   AWS_ACCOUNT_ID: "386566550838"
   ROLE_ARN: arn:aws:iam::386566550838:role/reelwright-dev-github-actions
+  DEPLOY_ROLE_ARN: arn:aws:iam::386566550838:role/reelwright-dev-github-actions-deploy
 
 jobs:
   terraform-plan:
@@ -55,3 +59,29 @@ jobs:
             -t "${{ steps.ecr.outputs.registry }}/reelwright/render-task:latest" .
           docker push "${{ steps.ecr.outputs.registry }}/reelwright/render-task:${{ github.sha }}"
           docker push "${{ steps.ecr.outputs.registry }}/reelwright/render-task:latest"
+
+      - run: |
+          docker build -f docker/transcribe.Dockerfile \
+            -t "${{ steps.ecr.outputs.registry }}/reelwright/analyze-transcribe:${{ github.sha }}" \
+            -t "${{ steps.ecr.outputs.registry }}/reelwright/analyze-transcribe:latest" .
+          docker push "${{ steps.ecr.outputs.registry }}/reelwright/analyze-transcribe:${{ github.sha }}"
+          docker push "${{ steps.ecr.outputs.registry }}/reelwright/analyze-transcribe:latest"
+
+  apply:
+    runs-on: ubuntu-latest
+    needs: build-and-push-images
+    # gate: this environment must require a reviewer in repo Settings ->
+    # Environments -> dev. The run pauses here until approved, and only then
+    # can the job assume DEPLOY_ROLE_ARN (trust is scoped to environment:dev).
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      - working-directory: infra/envs/dev
+        run: terraform init -input=false
+      - working-directory: infra/envs/dev
+        run: terraform apply -input=false -auto-approve -var="budget_alert_email=${{ secrets.BUDGET_ALERT_EMAIL }}"

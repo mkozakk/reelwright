@@ -34,6 +34,10 @@ output "github_actions_role_arn" {
   value = aws_iam_role.github_actions.arn
 }
 
+output "github_actions_deploy_role_arn" {
+  value = aws_iam_role.github_actions_deploy.arn
+}
+
 output "dlq_url" {
   value = aws_sqs_queue.dlq.url
 }
