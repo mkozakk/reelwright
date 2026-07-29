@@ -63,7 +63,15 @@ def get_job(table_name: str, job_id: str) -> JobRecord:
         output_key=item.get("output_key"),
         thumbnail_key=item.get("thumbnail_key"),
         error=item.get("error"),
+        notify_email=item.get("notify_email"),
         ttl=item.get("ttl"),
+    )
+
+
+def put_new_job(table_name: str, item: dict) -> None:
+    _table(table_name).put_item(
+        Item=to_decimal(item),
+        ConditionExpression="attribute_not_exists(pk)",
     )
 
 
@@ -90,6 +98,28 @@ def conditional_status_flip(table_name: str, job_id: str, from_status: str, to_s
             ConditionExpression="#status = :from",
             ExpressionAttributeNames={"#status": "status"},
             ExpressionAttributeValues={":to": to_status, ":from": from_status},
+        )
+        return True
+    except table.meta.client.exceptions.ConditionalCheckFailedException:
+        return False
+
+
+def ip_cap_pk(ip: str, day: str) -> str:
+    return f"IPCAP#{ip}#{day}"
+
+
+def claim_ip_slot(table_name: str, ip: str, day: str, cap: int, ttl: int) -> bool:
+    """Atomically bump a per-IP-per-day counter, refusing once it reaches cap.
+    'count' is a DynamoDB reserved word, hence the #n alias. Returns False when
+    the daily cap is already spent -- the caller turns that into HTTP 429."""
+    table = _table(table_name)
+    try:
+        table.update_item(
+            Key={PK: ip_cap_pk(ip, day)},
+            UpdateExpression="SET #ttl = if_not_exists(#ttl, :ttl) ADD #n :one",
+            ConditionExpression="attribute_not_exists(#n) OR #n < :cap",
+            ExpressionAttributeNames={"#n": "count", "#ttl": "ttl"},
+            ExpressionAttributeValues={":one": 1, ":cap": cap, ":ttl": ttl},
         )
         return True
     except table.meta.client.exceptions.ConditionalCheckFailedException:
