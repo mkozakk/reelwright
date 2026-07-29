@@ -20,6 +20,22 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
   }
 }
 
+resource "aws_cloudwatch_metric_alarm" "pipeline_execution_failures" {
+  alarm_name          = "${local.name_prefix}-pipeline-execution-failures"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ExecutionsFailed"
+  namespace           = "AWS/States"
+  period              = 3600
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "a montage-pipeline execution failed in the last hour"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  dimensions = {
+    StateMachineArn = aws_sfn_state_machine.pipeline.arn
+  }
+}
+
 resource "aws_cloudwatch_log_group" "sfn" {
   name              = "/aws/vendedlogs/states/${local.name_prefix}-pipeline"
   retention_in_days = 14
