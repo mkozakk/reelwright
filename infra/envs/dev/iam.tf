@@ -359,6 +359,11 @@ resource "aws_iam_role_policy" "job_api" {
         Effect   = "Allow"
         Action   = ["s3:PutObject"]
         Resource = "${aws_s3_bucket.this["raw"].arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["states:StartExecution"]
+        Resource = aws_sfn_state_machine.pipeline.arn
       }
     ]
   })

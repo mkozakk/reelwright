@@ -8,7 +8,7 @@ from renderer.compile import compile_plan
 from renderer.edit_plan.models import EditPlan
 from renderer.ffmpeg_run import run_ffmpeg
 from renderer.segments import build_segment_plan, clip_output_duration
-from services.common import dynamo, s3keys, storage
+from services.common import cutcache, dynamo, s3keys, storage
 from services.common.logging import log_job
 
 
@@ -26,6 +26,7 @@ def run_cut(
     dynamo.start_step(jobs_table, job_id, "cut")
     job = dynamo.get_job(jobs_table, job_id)
     plan = EditPlan.model_validate(job.edit_plan)
+    profile = cutcache.profile_key(plan.output.aspect, plan.output.resolution)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -34,18 +35,25 @@ def run_cut(
 
         for index in clip_indices:
             clip = plan.clips[index]
-            if clip.source not in source_cache:
-                source_ref = job.sources[clip.source]
-                source_cache[clip.source] = storage.download(raw_bucket, source_ref.key, tmp_dir)
-            local_source = source_cache[clip.source]
+            source_ref = job.sources[clip.source]
+            key = s3keys.work_cut_cache_key(
+                cutcache.cache_key(source_ref.key, clip.start, clip.end, clip.speed, profile)
+            )
 
-            segment_plan = build_segment_plan(plan, index)
-            out_path = tmp_dir / f"{index:03d}.mp4"
-            command = compile_plan(segment_plan, {clip.source: local_source}, out_path)
-            run_ffmpeg(command.args)
+            if not storage.exists(work_bucket, key):
+                if clip.source not in source_cache:
+                    source_cache[clip.source] = storage.download(
+                        raw_bucket, source_ref.key, tmp_dir
+                    )
+                local_source = source_cache[clip.source]
 
-            key = s3keys.work_clip_key(job_id, index)
-            storage.upload(work_bucket, key, out_path)
+                segment_plan = build_segment_plan(plan, index)
+                out_path = tmp_dir / f"{index:03d}.mp4"
+                command = compile_plan(segment_plan, {clip.source: local_source}, out_path)
+                run_ffmpeg(command.args)
+                storage.upload(work_bucket, key, out_path)
+
+            dynamo.set_cut_key(jobs_table, job_id, index, key)
             results.append({"index": index, "key": key, "duration": clip_output_duration(clip)})
 
         dynamo.finish_step(jobs_table, job_id, "cut")

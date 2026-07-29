@@ -1,7 +1,18 @@
 {
   "Comment": "montage-pipeline: Probe -> Analyze (Parallel) -> Plan -> Cut (Map) -> Render -> Finish",
-  "StartAt": "Probe",
+  "StartAt": "RouteMode",
   "States": {
+    "RouteMode": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "rerender",
+          "Next": "PrepareCut"
+        }
+      ],
+      "Default": "Probe"
+    },
     "Probe": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",

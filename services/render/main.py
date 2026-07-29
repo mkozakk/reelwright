@@ -28,7 +28,11 @@ def run_render_job(job_id: str, jobs_table: str, work_bucket: str, output_bucket
         # built yet -- Phase 2's canned plan must ship with subtitles off.
         raise NotImplementedError("subtitle burn-in is not supported across cut segments yet")
 
-    clip_keys = storage.list_keys(work_bucket, s3keys.work_clips_prefix(job_id))
+    # cut_keys is a {str(clip_index): cache_key} map (services/cut/handler.py)
+    # -- reading it, rather than listing a job-id-prefixed path, is what lets
+    # a rerender reuse a mix of cache-hit and freshly-cut clips regardless of
+    # which job originally produced each one (docs/phases/phase-7.md).
+    clip_keys = [job.cut_keys[k] for k in sorted(job.cut_keys, key=int)]
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)

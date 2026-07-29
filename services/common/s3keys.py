@@ -14,6 +14,13 @@ def work_clips_prefix(job_id: str) -> str:
     return f"work/{job_id}/clips/"
 
 
+def work_cut_cache_key(cache_hash: str) -> str:
+    # content-addressed, decoupled from job_id -- shared across a job's own
+    # reruns and, incidentally, across jobs that cut an identical segment
+    # (docs/phases/phase-7.md rerender caching)
+    return f"work/cache/{cache_hash}.mp4"
+
+
 def output_key(job_id: str) -> str:
     return f"output/{job_id}/montage.mp4"
 

@@ -10,10 +10,21 @@ from services.job_api import logic
 from services.job_api.handler import handler
 
 
-def _event(method, *, body=None, ip="203.0.113.1", job_id=None, sub="user-1", email="user@example.com"):
+def _event(
+    method,
+    *,
+    body=None,
+    ip="203.0.113.1",
+    job_id=None,
+    path=None,
+    sub="user-1",
+    email="user@example.com",
+):
+    if path is None:
+        path = f"/jobs/{job_id}/complete" if job_id else "/jobs"
     return {
         "requestContext": {
-            "http": {"method": method, "sourceIp": ip},
+            "http": {"method": method, "sourceIp": ip, "path": path},
             "authorizer": {"jwt": {"claims": {"sub": sub, "email": email}}},
         },
         "body": None if body is None else json.dumps(body),

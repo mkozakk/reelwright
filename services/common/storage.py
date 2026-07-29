@@ -3,10 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 
 import boto3
+from botocore.exceptions import ClientError
 
 
 def _client():
     return boto3.client("s3")
+
+
+def exists(bucket: str, key: str) -> bool:
+    try:
+        _client().head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+            return False
+        raise
 
 
 def download(bucket: str, key: str, dest_dir: Path) -> Path:
