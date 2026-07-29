@@ -107,3 +107,44 @@ def test_storage_round_trips_a_file(aws_stack, tmp_path):
     dest_dir = tmp_path / "download"
     downloaded = storage.download(bucket, "raw/job1/hello.txt", dest_dir)
     assert downloaded.read_text() == "hello"
+
+
+def test_start_step_then_finish_step_records_both_timestamps(aws_stack):
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "ANALYZING"})
+
+    dynamo.start_step(table_name, "job1", "probe")
+    dynamo.finish_step(table_name, "job1", "probe")
+
+    job = dynamo.get_job(table_name, "job1")
+    assert "started_at" in job.timings["probe"]
+    assert "finished_at" in job.timings["probe"]
+
+
+def test_start_step_is_idempotent_across_retries(aws_stack):
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "RENDERING"})
+
+    dynamo.start_step(table_name, "job1", "render_wait")
+    first_started_at = dynamo.get_job(table_name, "job1").timings["render_wait"]["started_at"]
+
+    dynamo.start_step(table_name, "job1", "render_wait")
+    second_started_at = dynamo.get_job(table_name, "job1").timings["render_wait"]["started_at"]
+
+    assert first_started_at == second_started_at
+
+
+def test_finish_step_requires_a_prior_start_step(aws_stack):
+    # mirrors set_analysis_key's if_not_exists idiom -- finish_step assumes
+    # start_step already created the timings map and the step's sub-map
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "RENDERING"})
+    dynamo.start_step(table_name, "job1", "render")
+
+    dynamo.finish_step(table_name, "job1", "render")
+
+    job = dynamo.get_job(table_name, "job1")
+    assert set(job.timings["render"]) == {"started_at", "finished_at"}

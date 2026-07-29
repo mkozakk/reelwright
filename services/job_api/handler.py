@@ -7,6 +7,7 @@ import time
 import boto3
 
 from services.common import dynamo, s3keys
+from services.common.logging import get_logger
 
 from ..finish import cloudfront_sign
 from . import logic
@@ -92,6 +93,7 @@ def _create_job(event: dict) -> dict:
     dynamo.put_new_job(
         jobs_table, logic.build_job_item(job_id, logic.SRC_ID, key, request, created)
     )
+    get_logger(__name__, job_id).info("job created")
 
     body = {"job_id": job_id, "status": "UPLOADING"}
     body.update(_presign_upload(key, request))
@@ -150,4 +152,5 @@ def handler(event: dict, context=None) -> dict:
             return _get_job(job_id)
         raise logic.ApiError(404, "no such route")
     except logic.ApiError as exc:
+        get_logger(__name__, job_id).info("rejected: %s", exc.message)
         return _respond(exc.status, {"error": exc.message})
