@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from renderer.edit_plan.models import EditPlan
 from renderer.edit_plan.validate import EditPlanValidationError, validate_plan
-from services.common import dynamo, s3keys
+from services.common import dynamo, events, s3keys
 from services.common.logging import get_logger
 from services.common.tracing import segment
 
@@ -101,6 +101,7 @@ def _create_job(event: dict) -> dict:
         dynamo.put_new_job(
             jobs_table, logic.build_job_item(job_id, logic.SRC_ID, key, request, created, user_id)
         )
+        events.publish("job.created", job_id, user_id=user_id, status="UPLOADING")
         get_logger(__name__, job_id).info("job created")
 
         body = {"job_id": job_id, "status": "UPLOADING"}

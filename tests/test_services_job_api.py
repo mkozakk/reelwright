@@ -171,6 +171,22 @@ def test_create_job_writes_record_and_returns_presigned_url(aws_stack, monkeypat
     assert job.sources["source"].uploaded is False
 
 
+def test_create_job_publishes_a_job_created_event(aws_stack, monkeypatch):
+    from services.job_api import handler as handler_mod
+
+    published = []
+    monkeypatch.setattr(handler_mod.events, "publish", lambda *a, **kw: published.append((a, kw)))
+    _set_api_env(monkeypatch, aws_stack)
+
+    resp = handler(_event("POST", body=_valid_create()))
+    job_id = json.loads(resp["body"])["job_id"]
+
+    [(args, kwargs)] = published
+    assert args[0] == "job.created"
+    assert args[1] == job_id
+    assert kwargs == {"user_id": "user-1", "status": "UPLOADING"}
+
+
 def test_create_job_uses_multipart_for_large_files(aws_stack, monkeypatch):
     _set_api_env(monkeypatch, aws_stack)
     size = logic.MULTIPART_THRESHOLD + 3 * logic.PART_SIZE

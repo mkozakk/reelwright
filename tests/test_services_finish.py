@@ -52,7 +52,12 @@ def test_sign_url_round_trips_with_the_matching_public_key():
 
 
 @pytest.mark.media
-def test_run_finish_verifies_thumbnails_and_signs_a_url(aws_stack, tmp_path):
+def test_run_finish_verifies_thumbnails_and_signs_a_url(aws_stack, tmp_path, monkeypatch):
+    import services.finish.handler as finish_handler
+
+    published = []
+    monkeypatch.setattr(finish_handler.events, "publish", lambda *a, **kw: published.append((a, kw)))
+
     job_id = "job1"
     local_out = tmp_path / "montage.mp4"
     exit_code = render_main(
@@ -92,6 +97,10 @@ def test_run_finish_verifies_thumbnails_and_signs_a_url(aws_stack, tmp_path):
 
     head = s3.head_object(Bucket=aws_stack["output_bucket"], Key=job.thumbnail_key)
     assert head["ContentLength"] > 0
+
+    [(args, kwargs)] = published
+    assert args == ("job.rendered", job_id)
+    assert kwargs["status"] == "DONE"
 
 
 @pytest.mark.media

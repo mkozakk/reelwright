@@ -16,7 +16,7 @@ from renderer.edit_plan.validate import (
     validate_plan,
 )
 from renderer.presets import music as music_presets
-from services.common import dynamo, storage
+from services.common import dynamo, events, storage
 from services.common.logging import get_logger, log_job
 from services.common.tracing import segment
 
@@ -89,6 +89,17 @@ def run_plan(
     meta["cost_usd"] = _cost(meta)
     dynamo.update_job(
         jobs_table, job_id, edit_plan=plan.model_dump(), planning=meta, status="RENDERING"
+    )
+    events.publish(
+        "job.planned",
+        job_id,
+        user_id=job.user_id,
+        status="RENDERING",
+        source=meta["source"],
+        model=meta["model"],
+        input_tokens=meta["input_tokens"],
+        output_tokens=meta["output_tokens"],
+        cost_usd=meta["cost_usd"],
     )
     dynamo.finish_step(jobs_table, job_id, "plan")
 
