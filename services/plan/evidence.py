@@ -11,11 +11,13 @@ def build_evidence(
     loudness: dict | None,
     scenes: dict | None,
     transcript: dict | None,
+    source_ids: list[str] | None = None,
 ) -> dict:
     loudness_points = (loudness or {}).get("points", [])
     scene_cuts = (scenes or {}).get("cuts", [])
     words = (transcript or {}).get("words", [])
     return {
+        "sources": source_ids or [],
         "source_duration": _source_duration(loudness_points),
         "loudness_points": [
             {"t": round(p["t"], 1), "level_db": round(p["level_db"], 1)} for p in loudness_points

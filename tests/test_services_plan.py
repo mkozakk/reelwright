@@ -96,6 +96,56 @@ def test_llm_plan_is_used_and_costed_on_the_happy_path(aws_stack):
     assert job.planning["cost_usd"] > 0
 
 
+def test_sub_half_second_clips_are_dropped_so_the_plan_survives(aws_stack):
+    _seed(aws_stack, "job1")
+    mixed = {
+        "version": "1",
+        "summary": "mixed",
+        "clips": [
+            {"source": "src1", "start": 0.0, "end": 2.0, "reason": "loud at 1.0s"},
+            {"source": "src1", "start": 5.0, "end": 5.1, "reason": "scene cut"},
+            {"source": "src1", "start": 3.0, "end": 4.0, "reason": "loud at 3.5s"},
+        ],
+        "output": {"max_duration": 12.0},
+    }
+    planner = FakePlanner([mixed])
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=planner)
+
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert planner.calls == 1  # dropped in place, no retry needed
+    assert job.planning["source"] == "llm"
+    assert job.planning["retries"] == 0
+    spans = [(c["start"], c["end"]) for c in job.edit_plan["clips"]]
+    assert spans == [(0.0, 2.0), (3.0, 4.0)]
+
+
+def test_subtitles_are_gated_off_until_the_renderer_supports_them(aws_stack):
+    _seed(aws_stack, "job1")
+    plan = _llm_plan()
+    plan["subtitles"] = {"enabled": True, "mode": "word_highlight"}
+    planner = FakePlanner([plan])
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=planner)
+
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert job.edit_plan["subtitles"]["enabled"] is False
+
+
+def test_invented_source_is_remapped_to_the_single_job_source(aws_stack):
+    _seed(aws_stack, "job1")
+    plan = _llm_plan()
+    plan["clips"][0]["source"] = "source_clip"  # model invents a source id
+    planner = FakePlanner([plan])
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=planner)
+
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert planner.calls == 1  # remapped in place, no retry
+    assert job.planning["source"] == "llm"
+    assert all(clip["source"] == "src1" for clip in job.edit_plan["clips"])
+
+
 def test_invalid_plan_triggers_one_retry_then_succeeds(aws_stack):
     _seed(aws_stack, "job1")
     planner = FakePlanner([_overlapping_plan(), _llm_plan("second try")])
