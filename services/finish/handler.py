@@ -8,6 +8,7 @@ from pathlib import Path
 from renderer.probe import probe_file
 from renderer.thumbnail import extract_thumbnail
 from services.common import dynamo, s3keys, storage
+from services.common.logging import log_job
 
 from . import cloudfront_sign
 
@@ -26,6 +27,7 @@ def run_finish(
     key_pair_id: str,
     private_key_pem: bytes,
 ) -> str:
+    dynamo.start_step(jobs_table, job_id, "finish")
     job = dynamo.get_job(jobs_table, job_id)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -47,17 +49,19 @@ def run_finish(
     )
 
     dynamo.update_job(jobs_table, job_id, status="DONE", thumbnail_key=thumb_key)
+    dynamo.finish_step(jobs_table, job_id, "finish")
     return signed_url
 
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    signed_url = run_finish(
-        job_id,
-        jobs_table=os.environ["JOBS_TABLE"],
-        output_bucket=os.environ["OUTPUT_BUCKET"],
-        cloudfront_domain=os.environ["CLOUDFRONT_DOMAIN"],
-        key_pair_id=os.environ["CLOUDFRONT_KEY_PAIR_ID"],
-        private_key_pem=os.environ["CLOUDFRONT_PRIVATE_KEY_PEM"].encode(),
-    )
+    with log_job(__name__, job_id):
+        signed_url = run_finish(
+            job_id,
+            jobs_table=os.environ["JOBS_TABLE"],
+            output_bucket=os.environ["OUTPUT_BUCKET"],
+            cloudfront_domain=os.environ["CLOUDFRONT_DOMAIN"],
+            key_pair_id=os.environ["CLOUDFRONT_KEY_PAIR_ID"],
+            private_key_pem=os.environ["CLOUDFRONT_PRIVATE_KEY_PEM"].encode(),
+        )
     return {"job_id": job_id, "status": "DONE", "url": signed_url}

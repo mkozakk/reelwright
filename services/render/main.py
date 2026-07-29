@@ -10,6 +10,7 @@ from renderer.edit_plan.models import EditPlan
 from renderer.ffmpeg_run import run_ffmpeg
 from renderer.segments import build_concat_plan, clip_output_duration
 from services.common import dynamo, s3keys, storage
+from services.common.logging import get_logger
 
 
 @dataclass
@@ -18,6 +19,7 @@ class RenderResult:
 
 
 def run_render_job(job_id: str, jobs_table: str, work_bucket: str, output_bucket: str) -> RenderResult:
+    dynamo.start_step(jobs_table, job_id, "render")
     job = dynamo.get_job(jobs_table, job_id)
     plan = EditPlan.model_validate(job.edit_plan)
 
@@ -46,6 +48,7 @@ def run_render_job(job_id: str, jobs_table: str, work_bucket: str, output_bucket
         storage.upload(output_bucket, key, out_path)
 
     dynamo.update_job(jobs_table, job_id, output_key=key, status="RENDERING")
+    dynamo.finish_step(jobs_table, job_id, "render")
     return RenderResult(output_key=key)
 
 
@@ -55,9 +58,13 @@ def main(job_id: str | None = None) -> int:
     work_bucket = os.environ["WORK_BUCKET"]
     output_bucket = os.environ["OUTPUT_BUCKET"]
 
+    log = get_logger(__name__, job_id)
+    log.info("render started")
     try:
         run_render_job(job_id, jobs_table, work_bucket, output_bucket)
     except Exception as exc:
+        log.exception("render failed")
         dynamo.mark_failed(jobs_table, job_id, str(exc))
         return 1
+    log.info("render finished")
     return 0

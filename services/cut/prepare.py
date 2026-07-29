@@ -4,6 +4,7 @@ import os
 
 from renderer.edit_plan.models import EditPlan
 from services.common import dynamo
+from services.common.logging import log_job
 
 CLIP_BATCH_SIZE = 5
 
@@ -19,9 +20,11 @@ def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
     jobs_table = os.environ["JOBS_TABLE"]
 
-    job = dynamo.get_job(jobs_table, job_id)
-    plan = EditPlan.model_validate(job.edit_plan)
-    batches = build_batches(len(plan.clips))
+    with log_job(__name__, job_id):
+        dynamo.start_step(jobs_table, job_id, "cut")
+        job = dynamo.get_job(jobs_table, job_id)
+        plan = EditPlan.model_validate(job.edit_plan)
+        batches = build_batches(len(plan.clips))
 
     return {
         "job_id": job_id,

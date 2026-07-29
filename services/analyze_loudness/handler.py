@@ -7,9 +7,11 @@ from pathlib import Path
 
 from renderer.loudness import run_loudness_analysis
 from services.common import dynamo, s3keys, storage
+from services.common.logging import log_job
 
 
 def run_analyze_loudness(job_id: str, jobs_table: str, work_bucket: str) -> None:
+    dynamo.start_step(jobs_table, job_id, "loudness")
     job = dynamo.get_job(jobs_table, job_id)
     src_id, audio_key = next(iter(job.analysis_keys["audio"].items()))  # single source in Phase 3
 
@@ -31,13 +33,15 @@ def run_analyze_loudness(job_id: str, jobs_table: str, work_bucket: str) -> None
         storage.upload(work_bucket, loudness_key, out_path)
 
     dynamo.set_analysis_key(jobs_table, job_id, "loudness", {src_id: loudness_key})
+    dynamo.finish_step(jobs_table, job_id, "loudness")
 
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    run_analyze_loudness(
-        job_id,
-        jobs_table=os.environ["JOBS_TABLE"],
-        work_bucket=os.environ["WORK_BUCKET"],
-    )
+    with log_job(__name__, job_id):
+        run_analyze_loudness(
+            job_id,
+            jobs_table=os.environ["JOBS_TABLE"],
+            work_bucket=os.environ["WORK_BUCKET"],
+        )
     return {"job_id": job_id}

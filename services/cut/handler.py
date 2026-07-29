@@ -9,6 +9,7 @@ from renderer.edit_plan.models import EditPlan
 from renderer.ffmpeg_run import run_ffmpeg
 from renderer.segments import build_segment_plan, clip_output_duration
 from services.common import dynamo, s3keys, storage
+from services.common.logging import log_job
 
 
 def run_cut(
@@ -18,6 +19,11 @@ def run_cut(
     raw_bucket: str,
     work_bucket: str,
 ) -> list[dict]:
+    # if_not_exists in start_step means calling it here too is safe even
+    # though cut/prepare.py already started "cut" -- this batch just
+    # doesn't move the start time, and run_cut stays independently testable
+    # without going through prepare first.
+    dynamo.start_step(jobs_table, job_id, "cut")
     job = dynamo.get_job(jobs_table, job_id)
     plan = EditPlan.model_validate(job.edit_plan)
 
@@ -42,16 +48,18 @@ def run_cut(
             storage.upload(work_bucket, key, out_path)
             results.append({"index": index, "key": key, "duration": clip_output_duration(clip)})
 
+        dynamo.finish_step(jobs_table, job_id, "cut")
         return results
 
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    clips = run_cut(
-        job_id,
-        event["clip_indices"],
-        jobs_table=os.environ["JOBS_TABLE"],
-        raw_bucket=os.environ["RAW_BUCKET"],
-        work_bucket=os.environ["WORK_BUCKET"],
-    )
+    with log_job(__name__, job_id):
+        clips = run_cut(
+            job_id,
+            event["clip_indices"],
+            jobs_table=os.environ["JOBS_TABLE"],
+            raw_bucket=os.environ["RAW_BUCKET"],
+            work_bucket=os.environ["WORK_BUCKET"],
+        )
     return {"job_id": job_id, "clips": clips}

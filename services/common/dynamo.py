@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
@@ -65,6 +66,7 @@ def get_job(table_name: str, job_id: str) -> JobRecord:
         error=item.get("error"),
         notify_email=item.get("notify_email"),
         ttl=item.get("ttl"),
+        timings=dict(item.get("timings", {})),
     )
 
 
@@ -128,6 +130,39 @@ def claim_ip_slot(table_name: str, ip: str, day: str, cap: int, ttl: int) -> boo
 
 def mark_failed(table_name: str, job_id: str, error: str) -> None:
     update_job(table_name, job_id, status="FAILED", error=error)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def start_step(table_name: str, job_id: str, step: str) -> None:
+    # if_not_exists on started_at -- ASL Retry re-invokes some steps (the
+    # semaphore wait, RenderOnDemand after a Spot reclaim), and only the
+    # first attempt's start should count toward the step's wall-clock time.
+    table = _table(table_name)
+    key = {PK: job_pk(job_id)}
+    table.update_item(
+        Key=key,
+        UpdateExpression="SET #timings = if_not_exists(#timings, :empty)",
+        ExpressionAttributeNames={"#timings": "timings"},
+        ExpressionAttributeValues={":empty": {}},
+    )
+    table.update_item(
+        Key=key,
+        UpdateExpression="SET #timings.#step = if_not_exists(#timings.#step, :val)",
+        ExpressionAttributeNames={"#timings": "timings", "#step": step},
+        ExpressionAttributeValues={":val": {"started_at": _now_iso()}},
+    )
+
+
+def finish_step(table_name: str, job_id: str, step: str) -> None:
+    _table(table_name).update_item(
+        Key={PK: job_pk(job_id)},
+        UpdateExpression="SET #timings.#step.#finished = :val",
+        ExpressionAttributeNames={"#timings": "timings", "#step": step, "#finished": "finished_at"},
+        ExpressionAttributeValues={":val": _now_iso()},
+    )
 
 
 def set_analysis_key(table_name: str, job_id: str, category: str, value: dict) -> None:

@@ -27,3 +27,4 @@ class JobRecord:
     error: str | None = None
     notify_email: str | None = None
     ttl: int | None = None
+    timings: dict = field(default_factory=dict)
