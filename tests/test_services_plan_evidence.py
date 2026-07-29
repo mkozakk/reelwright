@@ -25,6 +25,13 @@ def test_scene_cuts_capped_by_score_then_sorted_by_time():
     assert min(kept_times) > 0  # lowest-score (earliest) cuts were dropped
 
 
+def test_scene_cuts_capped_proportionally_to_source_duration():
+    loudness = {"points": [{"t": 0.0, "level_db": -30.0}, {"t": 7.0, "level_db": -10.0}]}  # 8s
+    cuts = [{"t": i * 0.1, "score": i / 100} for i in range(60)]
+    scenes = evidence.build_evidence(loudness, {"cuts": cuts}, None)["scene_cuts"]
+    assert len(scenes) == 4  # 8s // MIN_SECONDS_PER_SCENE (2s)
+
+
 def test_source_duration_from_loudness_tail():
     loudness = {"points": [{"t": 0.0, "level_db": -30.0}, {"t": 7.0, "level_db": -10.0}]}
     ev = evidence.build_evidence(loudness, None, None)
