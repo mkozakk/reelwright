@@ -33,3 +33,13 @@ provider "aws" {
     tags = local.tags
   }
 }
+
+# Bedrock (Nova + Guardrails) is not available in the stack region eu-north-1;
+# the planning call and its Guardrail live in var.bedrock_region.
+provider "aws" {
+  alias  = "bedrock"
+  region = var.bedrock_region
+  default_tags {
+    tags = local.tags
+  }
+}

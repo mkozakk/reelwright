@@ -46,3 +46,21 @@ variable "enable_dev_eventbridge_trigger" {
   type        = bool
   default     = true
 }
+
+variable "bedrock_region" {
+  description = "Region for Bedrock planning calls and the Guardrail; Nova Lite must be available there (the stack region eu-north-1 has no Nova, so the plan Lambda calls cross-region -- docs/phases/phase-4.md)"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "nova_model_id" {
+  description = "Bedrock model id for the planner -- config, not code (docs/DESIGN.md §4)"
+  type        = string
+  default     = "amazon.nova-lite-v1:0"
+}
+
+variable "plan_max_output_tokens" {
+  description = "Per-job Bedrock output-token cap on the planning call (denial-of-wallet, docs/DESIGN.md §10 layer 6)"
+  type        = number
+  default     = 2000
+}

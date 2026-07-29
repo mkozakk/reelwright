@@ -197,8 +197,8 @@ resource "aws_lambda_function" "plan" {
   role          = aws_iam_role.plan.arn
   package_type  = "Image"
   image_uri     = local.lambda_image_uri
-  timeout       = 30
-  memory_size   = 256
+  timeout       = 60 # Bedrock round-trip plus one validation retry
+  memory_size   = 512
 
   image_config {
     command = ["services.plan.handler.handler"]
@@ -206,8 +206,13 @@ resource "aws_lambda_function" "plan" {
 
   environment {
     variables = {
-      JOBS_TABLE  = aws_dynamodb_table.jobs.name
-      WORK_BUCKET = aws_s3_bucket.this["work"].bucket
+      JOBS_TABLE             = aws_dynamodb_table.jobs.name
+      WORK_BUCKET            = aws_s3_bucket.this["work"].bucket
+      NOVA_MODEL_ID          = var.nova_model_id
+      BEDROCK_REGION         = var.bedrock_region
+      PLAN_MAX_OUTPUT_TOKENS = tostring(var.plan_max_output_tokens)
+      GUARDRAIL_ID           = aws_bedrock_guardrail.planning.guardrail_id
+      GUARDRAIL_VERSION      = aws_bedrock_guardrail_version.planning.version
     }
   }
 }
