@@ -25,4 +25,5 @@ class JobRecord:
     output_key: str | None = None
     thumbnail_key: str | None = None
     error: str | None = None
+    notify_email: str | None = None
     ttl: int | None = None
