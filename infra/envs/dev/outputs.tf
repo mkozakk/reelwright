@@ -37,3 +37,7 @@ output "github_actions_role_arn" {
 output "dlq_url" {
   value = aws_sqs_queue.dlq.url
 }
+
+output "job_api_endpoint" {
+  value = aws_apigatewayv2_stage.job_api.invoke_url
+}

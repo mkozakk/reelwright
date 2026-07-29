@@ -61,3 +61,16 @@ resource "aws_s3_bucket_notification" "raw" {
   bucket      = aws_s3_bucket.this["raw"].id
   eventbridge = true
 }
+
+# lets the browser PUT straight to the presigned upload URL; the presign already
+# binds key + content-type/length, so this only governs which origins may send it
+resource "aws_s3_bucket_cors_configuration" "raw" {
+  bucket = aws_s3_bucket.this["raw"].id
+  cors_rule {
+    allowed_methods = ["PUT"]
+    allowed_origins = [var.frontend_origin]
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3600
+  }
+}
