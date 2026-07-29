@@ -9,7 +9,12 @@ from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import ValidationError
 
 from renderer.edit_plan.models import EditPlan
-from renderer.edit_plan.validate import EditPlanValidationError, validate_plan
+from renderer.edit_plan.validate import (
+    DURATION_EPSILON,
+    MIN_CLIP_SECONDS,
+    EditPlanValidationError,
+    validate_plan,
+)
 from services.common import dynamo, storage
 
 from . import evidence as evidence_mod
@@ -38,6 +43,7 @@ def run_plan(
 
     job = dynamo.get_job(jobs_table, job_id)
     src_id = _single_source(job.analysis_keys)
+    known_sources = list(job.sources) or [src_id]
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -45,7 +51,7 @@ def run_plan(
         scenes = _load(job.analysis_keys, "scenes", src_id, work_bucket, tmp_dir)
         transcript = _load(job.analysis_keys, "transcript", src_id, work_bucket, tmp_dir)
 
-    evidence = evidence_mod.build_evidence(loudness, scenes, transcript)
+    evidence = evidence_mod.build_evidence(loudness, scenes, transcript, source_ids=known_sources)
     prompt_prefs = evidence_mod.prefs_for_prompt(job.prefs)
 
     planner = planner or BedrockPlanner(
@@ -55,13 +61,19 @@ def run_plan(
         guardrail_id=guardrail_id,
         guardrail_version=guardrail_version,
     )
-    plan, meta = _plan_with_llm(planner, evidence, prompt_prefs, job.prefs)
+    plan, meta = _plan_with_llm(planner, evidence, prompt_prefs, job.prefs, known_sources)
 
     if plan is None:
         raw = fallback_planner.build_plan(src_id, (loudness or {}).get("points", []), job.prefs)
         plan = validate_plan(EditPlan.model_validate(raw), job.prefs)
         meta["source"] = "fallback"
 
+    # subtitle burn-in across cut/concat segments isn't built yet -- the
+    # renderer rejects an enabled-subtitles plan, so gate it here until the
+    # Phase 5 subtitle renderer lands. Transcription still runs as evidence.
+    plan.subtitles.enabled = False
+
+    print(f"[plan] source={meta['source']} attempts={meta['attempts']} retries={meta['retries']}")
     meta["cost_usd"] = _cost(meta)
     dynamo.update_job(
         jobs_table, job_id, edit_plan=plan.model_dump(), planning=meta, status="RENDERING"
@@ -69,7 +81,11 @@ def run_plan(
 
 
 def _plan_with_llm(
-    planner: BedrockPlanner, evidence: dict, prompt_prefs: dict, prefs: dict
+    planner: BedrockPlanner,
+    evidence: dict,
+    prompt_prefs: dict,
+    prefs: dict,
+    known_sources: list[str],
 ) -> tuple[EditPlan | None, dict]:
     meta = {
         "source": "llm",
@@ -90,14 +106,62 @@ def _plan_with_llm(
         meta["input_tokens"] += usage["input_tokens"]
         meta["output_tokens"] += usage["output_tokens"]
 
+        raw = _remap_unknown_sources(raw, known_sources)
+        raw = _drop_micro_clips(raw)
         plan, errors = _try_validate(raw, prefs)
         if plan is not None:
             return plan, meta
+        # structural/schema error strings only -- never plan content, which can
+        # carry transcript-derived text (docs/DESIGN.md §10 layer 7)
+        print(f"[plan] attempt {attempt} rejected: {errors}")
         if attempt == 0:
             meta["retries"] = 1
             messages = prompt.retry_messages(evidence, prompt_prefs, raw or {}, errors)
 
     return None, meta
+
+
+def _remap_unknown_sources(raw: dict | None, known_sources: list[str]) -> dict | None:
+    # The model sometimes invents a `source` name (e.g. "source_clip") that the
+    # renderer can't resolve, crashing the Cut step. With a single source there
+    # is no ambiguity -- any reference can only mean that one, so remap it.
+    # Multi-source (v1.2) is not v1.0 scope; there a bad source stays invalid.
+    if raw is None or not isinstance(raw.get("clips"), list) or len(known_sources) != 1:
+        return raw
+    sole = known_sources[0]
+    remapped = 0
+    clips = []
+    for clip in raw["clips"]:
+        if isinstance(clip, dict) and clip.get("source") != sole:
+            clip = {**clip, "source": sole}
+            remapped += 1
+        clips.append(clip)
+    if remapped:
+        print(f"[plan] remapped {remapped} clip source(s) to '{sole}'")
+        return {**raw, "clips": clips}
+    return raw
+
+
+def _drop_micro_clips(raw: dict | None) -> dict | None:
+    # The model persistently anchors sub-0.5s clips to (often noisy) scene cuts
+    # and ignores the min-length rule even when the retry names it. Rather than
+    # let one 0.3s clip reject the whole plan into fallback, drop just the too-
+    # short clips here, on the LLM output. The validator stays strict -- this
+    # repairs the plan before it reaches the boundary, it does not relax it.
+    if raw is None or not isinstance(raw.get("clips"), list):
+        return raw
+    kept = [c for c in raw["clips"] if not _is_micro_clip(c)]
+    if len(kept) == len(raw["clips"]):
+        return raw
+    print(f"[plan] dropped {len(raw['clips']) - len(kept)} clip(s) shorter than {MIN_CLIP_SECONDS}s")
+    return {**raw, "clips": kept}
+
+
+def _is_micro_clip(clip: dict) -> bool:
+    try:
+        return (clip["end"] - clip["start"]) < MIN_CLIP_SECONDS - DURATION_EPSILON
+    except (KeyError, TypeError):
+        return False  # malformed shape -- let the validator reject it
 
 
 def _try_validate(raw: dict | None, prefs: dict) -> tuple[EditPlan | None, list[str]]:
