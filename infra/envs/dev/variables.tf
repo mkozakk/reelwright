@@ -64,3 +64,21 @@ variable "plan_max_output_tokens" {
   type        = number
   default     = 2000
 }
+
+variable "frontend_origin" {
+  description = "Allowed browser origin for the job API and raw-bucket upload CORS; '*' in dev, the CloudFront site origin once the frontend has a domain (docs/phases/phase-5.md)"
+  type        = string
+  default     = "*"
+}
+
+variable "api_throttle_rate_limit" {
+  description = "Steady-state requests/sec across the job API (edge denial-of-wallet guard, docs/DESIGN.md §10)"
+  type        = number
+  default     = 20
+}
+
+variable "api_throttle_burst_limit" {
+  description = "Burst request ceiling across the job API"
+  type        = number
+  default     = 10
+}

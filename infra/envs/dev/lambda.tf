@@ -267,6 +267,34 @@ resource "aws_lambda_function" "cut" {
   }
 }
 
+# public-facing job API: create job + presign upload, get status + sign
+# playback URLs. No vpc_config -- presigning and CloudFront signing are local
+# credential operations, and it only touches DynamoDB + the raw bucket's
+# presign path, never raw bytes. Same container image as the rest.
+resource "aws_lambda_function" "job_api" {
+  function_name = "${local.name_prefix}-job-api"
+  role          = aws_iam_role.job_api.arn
+  package_type  = "Image"
+  image_uri     = local.lambda_image_uri
+  timeout       = 15
+  memory_size   = 256
+
+  image_config {
+    command = ["services.job_api.handler.handler"]
+  }
+
+  environment {
+    variables = {
+      JOBS_TABLE                 = aws_dynamodb_table.jobs.name
+      RAW_BUCKET                 = aws_s3_bucket.this["raw"].bucket
+      CLOUDFRONT_DOMAIN          = aws_cloudfront_distribution.output.domain_name
+      CLOUDFRONT_KEY_PAIR_ID     = aws_cloudfront_public_key.signing.id
+      CLOUDFRONT_PRIVATE_KEY_PEM = tls_private_key.cloudfront_signing.private_key_pem
+      CORS_ORIGIN                = var.frontend_origin
+    }
+  }
+}
+
 resource "aws_lambda_function" "finish" {
   function_name = "${local.name_prefix}-finish"
   role          = aws_iam_role.finish.arn
