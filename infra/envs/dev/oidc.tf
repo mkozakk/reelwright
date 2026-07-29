@@ -75,6 +75,23 @@ resource "aws_iam_role_policy" "github_actions_tfstate_lock" {
   })
 }
 
+# ReadOnlyAccess covers bedrock:Get*/List* generally, but not tag reads on a
+# guardrail -- terraform's refresh calls ListTagsForResource on every plan.
+resource "aws_iam_role_policy" "github_actions_bedrock_read" {
+  name = "bedrock-guardrail-read"
+  role = aws_iam_role.github_actions.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:ListTagsForResource"]
+        Resource = aws_bedrock_guardrail.planning.guardrail_arn
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "github_actions_ecr_push" {
   name = "ecr-push"
   role = aws_iam_role.github_actions.id
