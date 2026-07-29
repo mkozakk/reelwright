@@ -15,6 +15,7 @@ from renderer.edit_plan.validate import (
     EditPlanValidationError,
     validate_plan,
 )
+from renderer.presets import music as music_presets
 from services.common import dynamo, storage
 
 from . import evidence as evidence_mod
@@ -51,7 +52,12 @@ def run_plan(
         scenes = _load(job.analysis_keys, "scenes", src_id, work_bucket, tmp_dir)
         transcript = _load(job.analysis_keys, "transcript", src_id, work_bucket, tmp_dir)
 
-    evidence = evidence_mod.build_evidence(loudness, scenes, transcript, source_ids=known_sources)
+    manifest = music_presets.load_manifest()
+    music_catalog = [{"id": key, "mood": entry.get("mood", "")} for key, entry in manifest.items()]
+
+    evidence = evidence_mod.build_evidence(
+        loudness, scenes, transcript, source_ids=known_sources, music_tracks=music_catalog
+    )
     prompt_prefs = evidence_mod.prefs_for_prompt(job.prefs)
 
     planner = planner or BedrockPlanner(
@@ -61,7 +67,9 @@ def run_plan(
         guardrail_id=guardrail_id,
         guardrail_version=guardrail_version,
     )
-    plan, meta = _plan_with_llm(planner, evidence, prompt_prefs, job.prefs, known_sources)
+    plan, meta = _plan_with_llm(
+        planner, evidence, prompt_prefs, job.prefs, known_sources, set(manifest)
+    )
 
     if plan is None:
         raw = fallback_planner.build_plan(src_id, (loudness or {}).get("points", []), job.prefs)
@@ -86,6 +94,7 @@ def _plan_with_llm(
     prompt_prefs: dict,
     prefs: dict,
     known_sources: list[str],
+    valid_tracks: set[str],
 ) -> tuple[EditPlan | None, dict]:
     meta = {
         "source": "llm",
@@ -107,6 +116,7 @@ def _plan_with_llm(
         meta["output_tokens"] += usage["output_tokens"]
 
         raw = _remap_unknown_sources(raw, known_sources)
+        raw = _drop_unknown_music(raw, valid_tracks)
         raw = _drop_micro_clips(raw)
         plan, errors = _try_validate(raw, prefs)
         if plan is not None:
@@ -140,6 +150,19 @@ def _remap_unknown_sources(raw: dict | None, known_sources: list[str]) -> dict |
         print(f"[plan] remapped {remapped} clip source(s) to '{sole}'")
         return {**raw, "clips": clips}
     return raw
+
+
+def _drop_unknown_music(raw: dict | None, valid_tracks: set[str]) -> dict | None:
+    # music_track is a free string the renderer resolves against the bundled
+    # manifest -- an invented id (e.g. "upbeat-01") raises there and fails the
+    # render. Drop an unknown track to no-music rather than crash.
+    if raw is None or not isinstance(raw.get("audio"), dict):
+        return raw
+    track = raw["audio"].get("music_track")
+    if track is None or track in valid_tracks:
+        return raw
+    print(f"[plan] dropped unknown music_track '{track}'")
+    return {**raw, "audio": {**raw["audio"], "music_track": None}}
 
 
 def _drop_micro_clips(raw: dict | None) -> dict | None:

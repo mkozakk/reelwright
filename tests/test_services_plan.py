@@ -132,6 +132,21 @@ def test_subtitles_are_gated_off_until_the_renderer_supports_them(aws_stack):
     assert job.edit_plan["subtitles"]["enabled"] is False
 
 
+def test_unknown_music_track_is_dropped_but_a_valid_one_is_kept(aws_stack):
+    _seed(aws_stack, "job1")
+    invented = _llm_plan()
+    invented["audio"] = {"music_track": "upbeat-01", "duck_under_speech": True}
+    valid = _llm_plan("kept")
+    valid["audio"] = {"music_track": "placeholder-energetic", "duck_under_speech": True}
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=FakePlanner([invented]))
+    assert dynamo.get_job(aws_stack["jobs_table"], "job1").edit_plan["audio"]["music_track"] is None
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=FakePlanner([valid]))
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert job.edit_plan["audio"]["music_track"] == "placeholder-energetic"
+
+
 def test_invented_source_is_remapped_to_the_single_job_source(aws_stack):
     _seed(aws_stack, "job1")
     plan = _llm_plan()
