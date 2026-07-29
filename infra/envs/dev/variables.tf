@@ -82,3 +82,9 @@ variable "api_throttle_burst_limit" {
   type        = number
   default     = 10
 }
+
+variable "cognito_callback_urls" {
+  description = "OAuth callback/logout URLs for the Cognito Hosted UI client -- local dev by default, the frontend CloudFront domain is added once Stage F's distribution exists (docs/phases/phase-7.md)"
+  type        = list(string)
+  default     = ["http://localhost:8000/callback.html"]
+}
