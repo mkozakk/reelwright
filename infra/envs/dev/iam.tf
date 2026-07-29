@@ -325,6 +325,11 @@ resource "aws_iam_role_policy" "plan" {
         Effect   = "Allow"
         Action   = ["bedrock:ApplyGuardrail"]
         Resource = aws_bedrock_guardrail.planning.guardrail_arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
       }
     ]
   })
@@ -360,6 +365,11 @@ resource "aws_iam_role_policy" "finish" {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject"]
         Resource = "${aws_s3_bucket.this["output"].arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
       }
     ]
   })
@@ -409,6 +419,11 @@ resource "aws_iam_role_policy" "job_api" {
         Effect   = "Allow"
         Action   = ["states:StartExecution"]
         Resource = aws_sfn_state_machine.pipeline.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
       }
     ]
   })
@@ -546,6 +561,13 @@ resource "aws_iam_role_policy" "sfn" {
         Effect   = "Allow"
         Action   = ["events:PutTargets", "events:PutRule", "events:DescribeRule"]
         Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/StepFunctionsGetEventsForECSTaskRule"
+      },
+      {
+        # the JobFailed -> PublishJobFailedEvent native integration, distinct
+        # from the ECS-callback events:PutTargets/PutRule grant above
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
       },
       {
         Effect   = "Allow"

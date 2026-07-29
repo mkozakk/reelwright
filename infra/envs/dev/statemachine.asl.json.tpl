@@ -267,6 +267,25 @@
         }
       },
       "ResultPath": null,
+      "Next": "PublishJobFailedEvent"
+    },
+    "PublishJobFailedEvent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Source": "montage.pipeline",
+            "DetailType": "job.failed",
+            "Detail": {
+              "job_id.$": "$.job_id",
+              "status": "FAILED",
+              "error.$": "States.Format('{}: {}', $.error.Error, $.error.Cause)"
+            }
+          }
+        ]
+      },
+      "ResultPath": null,
       "Next": "SendToDlq"
     },
     "SendToDlq": {

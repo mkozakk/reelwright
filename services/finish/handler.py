@@ -7,7 +7,7 @@ from pathlib import Path
 
 from renderer.probe import probe_file
 from renderer.thumbnail import extract_thumbnail
-from services.common import dynamo, s3keys, storage
+from services.common import dynamo, events, s3keys, storage
 from services.common.logging import log_job
 from services.common.tracing import segment
 
@@ -50,6 +50,7 @@ def run_finish(
     )
 
     dynamo.update_job(jobs_table, job_id, status="DONE", thumbnail_key=thumb_key)
+    events.publish("job.rendered", job_id, user_id=job.user_id, status="DONE")
     dynamo.finish_step(jobs_table, job_id, "finish")
     return signed_url
 
