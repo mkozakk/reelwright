@@ -56,6 +56,7 @@ def get_job(table_name: str, job_id: str) -> JobRecord:
         status=item["status"],
         created_at=item.get("created_at", ""),
         sources=sources,
+        user_id=item.get("user_id"),
         prefs=dict(item.get("prefs", {})),
         edit_plan=item.get("edit_plan"),
         planning=item.get("planning"),
@@ -126,6 +127,46 @@ def claim_ip_slot(table_name: str, ip: str, day: str, cap: int, ttl: int) -> boo
         return True
     except table.meta.client.exceptions.ConditionalCheckFailedException:
         return False
+
+
+def user_cap_pk(user_id: str, day: str) -> str:
+    return f"USERCAP#{user_id}#{day}"
+
+
+def claim_user_slot(table_name: str, user_id: str, day: str, cap: int, ttl: int) -> bool:
+    """Same atomic-counter pattern as claim_ip_slot (docs.DESIGN.md 11), keyed
+    per authenticated user instead of per IP. A re-render claims a slot too --
+    a re-render is a render."""
+    table = _table(table_name)
+    try:
+        table.update_item(
+            Key={PK: user_cap_pk(user_id, day)},
+            UpdateExpression="SET #ttl = if_not_exists(#ttl, :ttl) ADD #n :one",
+            ConditionExpression="attribute_not_exists(#n) OR #n < :cap",
+            ExpressionAttributeNames={"#n": "count", "#ttl": "ttl"},
+            ExpressionAttributeValues={":one": 1, ":cap": cap, ":ttl": ttl},
+        )
+        return True
+    except table.meta.client.exceptions.ConditionalCheckFailedException:
+        return False
+
+
+def list_jobs_for_user(table_name: str, user_id: str, limit: int = 50) -> list[dict]:
+    resp = _table(table_name).query(
+        IndexName="GSI1",
+        KeyConditionExpression="user_id = :uid",
+        ExpressionAttributeValues={":uid": user_id},
+        ScanIndexForward=False,
+        Limit=limit,
+    )
+    return [
+        {
+            "job_id": item["pk"].removeprefix("JOB#"),
+            "status": item["status"],
+            "created_at": item.get("created_at", ""),
+        }
+        for item in to_native(resp.get("Items", []))
+    ]
 
 
 def mark_failed(table_name: str, job_id: str, error: str) -> None:

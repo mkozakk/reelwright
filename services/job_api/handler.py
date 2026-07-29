@@ -79,19 +79,22 @@ def _presign_upload(key: str, request: dict) -> dict:
 
 def _create_job(event: dict) -> dict:
     jobs_table = os.environ["JOBS_TABLE"]
+    user_id = logic.user_id_from_claims(event)
     request = logic.validate_create_request(logic.parse_body(event.get("body")))
 
     created = logic.now()
     ip = logic.client_ip(event)
-    if not dynamo.claim_ip_slot(
-        jobs_table, ip, logic.ip_cap_day(created), logic.IP_DAILY_CAP, logic.ip_cap_ttl(created)
-    ):
+    day = logic.cap_day(created)
+    ttl = logic.cap_ttl(created)
+    if not dynamo.claim_ip_slot(jobs_table, ip, day, logic.IP_DAILY_CAP, ttl):
         raise logic.ApiError(429, "daily job limit reached for this address")
+    if not dynamo.claim_user_slot(jobs_table, user_id, day, logic.USER_DAILY_CAP, ttl):
+        raise logic.ApiError(429, "daily job limit reached for this account")
 
     job_id = logic.new_job_id()
     key = s3keys.raw_key(job_id, logic.SRC_ID)
     dynamo.put_new_job(
-        jobs_table, logic.build_job_item(job_id, logic.SRC_ID, key, request, created)
+        jobs_table, logic.build_job_item(job_id, logic.SRC_ID, key, request, created, user_id)
     )
     get_logger(__name__, job_id).info("job created")
 
@@ -100,7 +103,20 @@ def _create_job(event: dict) -> dict:
     return _respond(201, body)
 
 
+def _owned_job(event: dict, job_id: str):
+    try:
+        job = dynamo.get_job(os.environ["JOBS_TABLE"], job_id)
+    except KeyError:
+        raise logic.ApiError(404, "job not found")
+    if job.user_id != logic.user_id_from_claims(event):
+        # 404, not 403 -- don't confirm existence to a non-owner (capability-URL
+        # philosophy carried over from the pre-auth model, docs/phases/phase-5.md)
+        raise logic.ApiError(404, "job not found")
+    return job
+
+
 def _complete_upload(event: dict, job_id: str) -> dict:
+    _owned_job(event, job_id)
     request = logic.validate_complete_request(logic.parse_body(event.get("body")))
     boto3.client("s3").complete_multipart_upload(
         Bucket=os.environ["RAW_BUCKET"],
@@ -121,11 +137,8 @@ def _sign(key: str) -> str:
     )
 
 
-def _get_job(job_id: str) -> dict:
-    try:
-        job = dynamo.get_job(os.environ["JOBS_TABLE"], job_id)
-    except KeyError:
-        raise logic.ApiError(404, "job not found")
+def _get_job(event: dict, job_id: str) -> dict:
+    job = _owned_job(event, job_id)
 
     body = logic.status_response(job)
     if job.status == "DONE" and job.output_key:
@@ -134,6 +147,11 @@ def _get_job(job_id: str) -> dict:
             body["thumbnail_url"] = _sign(job.thumbnail_key)
         body["expires_in"] = logic.PLAYBACK_URL_TTL
     return _respond(200, body)
+
+
+def _list_jobs(event: dict) -> dict:
+    jobs = dynamo.list_jobs_for_user(os.environ["JOBS_TABLE"], logic.user_id_from_claims(event))
+    return _respond(200, {"jobs": jobs})
 
 
 def handler(event: dict, context=None) -> dict:
@@ -149,7 +167,9 @@ def handler(event: dict, context=None) -> dict:
         if method == "POST" and job_id:
             return _complete_upload(event, job_id)
         if method == "GET" and job_id:
-            return _get_job(job_id)
+            return _get_job(event, job_id)
+        if method == "GET" and not job_id:
+            return _list_jobs(event)
         raise logic.ApiError(404, "no such route")
     except logic.ApiError as exc:
         get_logger(__name__, job_id).info("rejected: %s", exc.message)

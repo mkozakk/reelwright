@@ -17,6 +17,7 @@ class JobRecord:
     status: str
     created_at: str
     sources: dict[str, SourceRef] = field(default_factory=dict)
+    user_id: str | None = None
     prefs: dict = field(default_factory=dict)
     edit_plan: dict | None = None
     planning: dict | None = None

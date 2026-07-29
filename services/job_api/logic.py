@@ -20,7 +20,8 @@ MAX_PARTS = 10000  # S3's hard ceiling on parts per upload
 UPLOAD_URL_TTL = 3600  # 60 min -- 500 MB on a slow uplink can exceed 15 (docs.DESIGN.md 9)
 PLAYBACK_URL_TTL = 900  # 15 min for every non-upload signed URL
 JOB_TTL_SECONDS = 30 * 24 * 3600  # docs.DESIGN.md 6: item ttl 30 days
-IP_DAILY_CAP = 20  # soft denial-of-wallet rail until Cognito (docs.DESIGN.md 10)
+IP_DAILY_CAP = 20  # soft denial-of-wallet rail, kept as defense-in-depth (docs.DESIGN.md 10)
+USER_DAILY_CAP = 3  # primary quota now that jobs are authenticated (docs/phases/phase-7.md)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -150,11 +151,14 @@ def validate_complete_request(body: dict) -> dict:
     return {"upload_id": upload_id, "parts": parts}
 
 
-def build_job_item(job_id: str, src_id: str, key: str, request: dict, created: datetime) -> dict:
-    """The DynamoDB item for a freshly created job. status/created_at are what
-    GSI1 (status + created_at) will project on for the Phase 7 per-user list."""
+def build_job_item(
+    job_id: str, src_id: str, key: str, request: dict, created: datetime, user_id: str
+) -> dict:
+    """The DynamoDB item for a freshly created job. user_id/created_at are
+    what GSI1 projects on for the per-user job list (docs/phases/phase-7.md)."""
     item = {
         "pk": f"JOB#{job_id}",
+        "user_id": user_id,
         "status": "UPLOADING",
         "created_at": created.isoformat(),
         "sources": {
@@ -172,11 +176,24 @@ def client_ip(event: dict) -> str:
     return event.get("requestContext", {}).get("http", {}).get("sourceIp", "unknown")
 
 
-def ip_cap_day(created: datetime) -> str:
+def claims(event: dict) -> dict:
+    """Verified JWT claims the API Gateway authorizer attaches to the event --
+    no token verification happens in this Lambda, API Gateway already did it."""
+    return event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
+
+
+def user_id_from_claims(event: dict) -> str:
+    sub = claims(event).get("sub")
+    if not sub:
+        raise ApiError(401, "missing authenticated user")
+    return sub
+
+
+def cap_day(created: datetime) -> str:
     return created.strftime("%Y-%m-%d")
 
 
-def ip_cap_ttl(created: datetime) -> int:
+def cap_ttl(created: datetime) -> int:
     return int(created.timestamp()) + 2 * 24 * 3600
 
 
