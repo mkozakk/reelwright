@@ -93,6 +93,9 @@ def main() -> int:
 
     print(f"output_key={job.output_key}")
     print(f"thumbnail_key={job.thumbnail_key}")
+    # the fallback planner is a silent safety net -- DONE alone doesn't prove
+    # Nova planned the edit, so surface whether the LLM path or the fallback ran
+    print(f"planning={job.planning}")
 
     exec_name = execution_name(job_id, etag, hash_prefs(PREFS))
     execution_arn = state_machine_arn.replace(":stateMachine:", ":execution:") + f":{exec_name}"
