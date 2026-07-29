@@ -29,6 +29,7 @@ jobs:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - uses: hashicorp/setup-terraform@v3
+      - run: bash scripts/build_lambda_zips.sh
       - working-directory: infra/envs/dev
         run: terraform init -input=false
       - working-directory: infra/envs/dev
@@ -81,6 +82,7 @@ jobs:
           role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - uses: hashicorp/setup-terraform@v3
+      - run: bash scripts/build_lambda_zips.sh
       - working-directory: infra/envs/dev
         run: terraform init -input=false
       - working-directory: infra/envs/dev
