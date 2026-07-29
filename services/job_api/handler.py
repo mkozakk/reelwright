@@ -5,7 +5,10 @@ import os
 import time
 
 import boto3
+from pydantic import ValidationError
 
+from renderer.edit_plan.models import EditPlan
+from renderer.edit_plan.validate import EditPlanValidationError, validate_plan
 from services.common import dynamo, s3keys
 from services.common.logging import get_logger
 
@@ -149,6 +152,40 @@ def _get_job(event: dict, job_id: str) -> dict:
     return _respond(200, body)
 
 
+def _rerender(event: dict, job_id: str) -> dict:
+    job = _owned_job(event, job_id)
+    jobs_table = os.environ["JOBS_TABLE"]
+
+    body = logic.parse_body(event.get("body"))
+    try:
+        plan = validate_plan(EditPlan.model_validate(body))
+    except (ValidationError, EditPlanValidationError) as exc:
+        raise logic.ApiError(400, f"invalid edit plan: {exc}")
+
+    created = logic.now()
+    if not dynamo.claim_user_slot(
+        jobs_table, job.user_id, logic.cap_day(created), logic.USER_DAILY_CAP, logic.cap_ttl(created)
+    ):
+        # a re-render is a render -- it counts against the same daily quota
+        raise logic.ApiError(429, "daily job limit reached for this account")
+
+    edit_plan_json = plan.model_dump_json()
+    dynamo.update_job(jobs_table, job_id, edit_plan=json.loads(edit_plan_json), status="RENDERING")
+
+    sfn = boto3.client("stepfunctions")
+    try:
+        sfn.start_execution(
+            stateMachineArn=os.environ["STATE_MACHINE_ARN"],
+            name=logic.rerender_execution_name(job_id, edit_plan_json),
+            input=json.dumps({"job_id": job_id, "mode": "rerender"}),
+        )
+    except sfn.exceptions.ExecutionAlreadyExists:
+        pass
+
+    get_logger(__name__, job_id).info("rerender started")
+    return _respond(202, {"job_id": job_id, "status": "RENDERING"})
+
+
 def _list_jobs(event: dict) -> dict:
     jobs = dynamo.list_jobs_for_user(os.environ["JOBS_TABLE"], logic.user_id_from_claims(event))
     return _respond(200, {"jobs": jobs})
@@ -157,6 +194,7 @@ def _list_jobs(event: dict) -> dict:
 def handler(event: dict, context=None) -> dict:
     http = event.get("requestContext", {}).get("http", {})
     method = http.get("method", "")
+    path = http.get("path", "")
     job_id = (event.get("pathParameters") or {}).get("id")
 
     if method == "OPTIONS":
@@ -164,6 +202,8 @@ def handler(event: dict, context=None) -> dict:
     try:
         if method == "POST" and not job_id:
             return _create_job(event)
+        if method == "POST" and job_id and path.endswith("/rerender"):
+            return _rerender(event, job_id)
         if method == "POST" and job_id:
             return _complete_upload(event, job_id)
         if method == "GET" and job_id:

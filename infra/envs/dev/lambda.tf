@@ -291,6 +291,7 @@ resource "aws_lambda_function" "job_api" {
       CLOUDFRONT_KEY_PAIR_ID     = aws_cloudfront_public_key.signing.id
       CLOUDFRONT_PRIVATE_KEY_PEM = tls_private_key.cloudfront_signing.private_key_pem
       CORS_ORIGIN                = var.frontend_origin
+      STATE_MACHINE_ARN          = aws_sfn_state_machine.pipeline.arn
     }
   }
 }

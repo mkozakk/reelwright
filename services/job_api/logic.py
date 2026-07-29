@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -195,6 +196,13 @@ def cap_day(created: datetime) -> str:
 
 def cap_ttl(created: datetime) -> int:
     return int(created.timestamp()) + 2 * 24 * 3600
+
+
+def rerender_execution_name(job_id: str, edit_plan_json: str) -> str:
+    # idempotent -- a double-submit of the identical edited plan doesn't
+    # start a second execution, same approach as services/trigger/logic.py
+    payload = f"{job_id}/{edit_plan_json}"
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def status_response(job) -> dict:

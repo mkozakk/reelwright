@@ -4,11 +4,19 @@ from pathlib import Path
 import boto3
 import pytest
 
-from services.common import dynamo, s3keys
+from services.common import cutcache, dynamo, s3keys
 from services.cut.handler import handler, run_cut
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_DIR = REPO_ROOT / "assets" / "sample"
+
+
+def _expected_key(job_id: str, plan: dict, clip: dict) -> str:
+    profile = cutcache.profile_key(plan["output"]["aspect"], plan["output"]["resolution"])
+    source_key = s3keys.raw_key(job_id, clip["source"])
+    return s3keys.work_cut_cache_key(
+        cutcache.cache_key(source_key, clip["start"], clip["end"], clip.get("speed", 1.0), profile)
+    )
 
 
 def _seed_job(aws_stack, job_id: str) -> dict:
@@ -38,7 +46,7 @@ def _seed_job(aws_stack, job_id: str) -> dict:
 
 @pytest.mark.media
 def test_run_cut_uploads_one_segment_per_requested_clip(aws_stack):
-    _seed_job(aws_stack, "job1")
+    plan = _seed_job(aws_stack, "job1")
 
     results = run_cut(
         "job1",
@@ -48,14 +56,57 @@ def test_run_cut_uploads_one_segment_per_requested_clip(aws_stack):
         work_bucket=aws_stack["work_bucket"],
     )
 
+    expected0 = _expected_key("job1", plan, plan["clips"][0])
+    expected2 = _expected_key("job1", plan, plan["clips"][2])
     assert [r["index"] for r in results] == [0, 2]
-    assert results[0]["key"] == s3keys.work_clip_key("job1", 0)
-    assert results[1]["key"] == s3keys.work_clip_key("job1", 2)
+    assert results[0]["key"] == expected0
+    assert results[1]["key"] == expected2
 
     s3 = boto3.client("s3", region_name="us-east-1")
-    listing = s3.list_objects_v2(Bucket=aws_stack["work_bucket"], Prefix=s3keys.work_clips_prefix("job1"))
+    listing = s3.list_objects_v2(Bucket=aws_stack["work_bucket"], Prefix="work/cache/")
     keys = sorted(obj["Key"] for obj in listing["Contents"])
-    assert keys == [s3keys.work_clip_key("job1", 0), s3keys.work_clip_key("job1", 2)]
+    assert keys == sorted([expected0, expected2])
+
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert job.cut_keys == {"0": expected0, "2": expected2}
+
+
+@pytest.mark.media
+def test_run_cut_skips_ffmpeg_on_a_cache_hit(aws_stack, monkeypatch):
+    _seed_job(aws_stack, "job1")
+
+    run_cut(
+        "job1",
+        [0],
+        jobs_table=aws_stack["jobs_table"],
+        raw_bucket=aws_stack["raw_bucket"],
+        work_bucket=aws_stack["work_bucket"],
+    )
+
+    import services.cut.handler as cut_handler
+
+    calls: list[str] = []
+    original_run_ffmpeg = cut_handler.run_ffmpeg
+
+    def counting_run_ffmpeg(args):
+        calls.append(args)
+        return original_run_ffmpeg(args)
+
+    monkeypatch.setattr(cut_handler, "run_ffmpeg", counting_run_ffmpeg)
+
+    # a rerender re-invokes Cut for the same job/clip -- same source key,
+    # same params -- hitting the content-addressed key cut on the first pass
+    results = run_cut(
+        "job1",
+        [0],
+        jobs_table=aws_stack["jobs_table"],
+        raw_bucket=aws_stack["raw_bucket"],
+        work_bucket=aws_stack["work_bucket"],
+    )
+
+    assert calls == []
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert job.cut_keys["0"] == results[0]["key"]
 
 
 @pytest.mark.media
