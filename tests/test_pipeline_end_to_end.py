@@ -110,6 +110,7 @@ def _start_execution_and_probe(aws_stack, monkeypatch, job_id: str, raw_key: str
 
 
 def _run_cut_render_finish(aws_stack, job_id: str, rsa_sha1_signing_available: bool) -> None:
+    s3 = boto3.client("s3", region_name="us-east-1")
     plan = dynamo.get_job(aws_stack["jobs_table"], job_id).edit_plan
 
     for index in range(len(plan["clips"])):
