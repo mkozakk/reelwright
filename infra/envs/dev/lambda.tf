@@ -363,6 +363,7 @@ resource "aws_lambda_function" "finish" {
       CLOUDFRONT_DOMAIN          = aws_cloudfront_distribution.output.domain_name
       CLOUDFRONT_KEY_PAIR_ID     = aws_cloudfront_public_key.signing.id
       CLOUDFRONT_PRIVATE_KEY_PEM = tls_private_key.cloudfront_signing.private_key_pem
+      SES_FROM_EMAIL             = var.ses_from_email
     }
   }
 }

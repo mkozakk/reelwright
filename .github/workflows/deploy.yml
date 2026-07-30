@@ -33,7 +33,10 @@ jobs:
       - working-directory: infra/envs/dev
         run: terraform init -input=false
       - working-directory: infra/envs/dev
-        run: terraform plan -input=false -var="budget_alert_email=${{ secrets.BUDGET_ALERT_EMAIL }}"
+        run: >
+          terraform plan -input=false
+          -var="budget_alert_email=${{ secrets.BUDGET_ALERT_EMAIL }}"
+          -var="ses_from_email=${{ secrets.SES_FROM_EMAIL }}"
 
   build-and-push-images:
     runs-on: ubuntu-latest
@@ -86,4 +89,7 @@ jobs:
       - working-directory: infra/envs/dev
         run: terraform init -input=false
       - working-directory: infra/envs/dev
-        run: terraform apply -input=false -auto-approve -var="budget_alert_email=${{ secrets.BUDGET_ALERT_EMAIL }}"
+        run: >
+          terraform apply -input=false -auto-approve
+          -var="budget_alert_email=${{ secrets.BUDGET_ALERT_EMAIL }}"
+          -var="ses_from_email=${{ secrets.SES_FROM_EMAIL }}"
