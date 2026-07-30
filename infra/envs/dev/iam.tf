@@ -140,7 +140,7 @@ resource "aws_iam_role_policy" "cut" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem"]
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
         Resource = aws_dynamodb_table.jobs.arn
       },
       {
