@@ -150,8 +150,16 @@ resource "aws_iam_role_policy" "cut" {
       },
       {
         Effect   = "Allow"
-        Action   = ["s3:PutObject"]
+        Action   = ["s3:GetObject", "s3:PutObject"]
         Resource = "${aws_s3_bucket.this["work"].arn}/*"
+      },
+      {
+        # AWS returns 403 instead of 404 for HeadObject/GetObject on a
+        # nonexistent key unless the caller also has bucket-level ListBucket --
+        # needed here because a cache-miss key legitimately doesn't exist yet.
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.this["work"].arn
       }
     ]
   })
