@@ -6,8 +6,10 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.mode",
-          "StringEquals": "rerender",
+          "And": [
+            { "Variable": "$.mode", "IsPresent": true },
+            { "Variable": "$.mode", "StringEquals": "rerender" }
+          ],
           "Next": "PrepareCut"
         }
       ],
