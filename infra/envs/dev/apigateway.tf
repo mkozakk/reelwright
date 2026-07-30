@@ -37,6 +37,7 @@ locals {
   job_api_routes = {
     "POST /jobs"               = true
     "POST /jobs/{id}/complete" = true
+    "POST /jobs/{id}/start"    = true
     "POST /jobs/{id}/rerender" = true
     "GET /jobs/{id}"           = true
     "GET /jobs"                = true
