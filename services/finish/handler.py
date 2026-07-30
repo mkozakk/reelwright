@@ -11,7 +11,7 @@ from services.common import dynamo, events, s3keys, storage
 from services.common.logging import log_job
 from services.common.tracing import segment
 
-from . import cloudfront_sign, notify
+from . import cloudfront_sign
 
 SIGNED_URL_TTL_SECONDS = 900  # 15 min, per docs.DESIGN.md output/download URLs
 
@@ -27,7 +27,6 @@ def run_finish(
     cloudfront_domain: str,
     key_pair_id: str,
     private_key_pem: bytes,
-    ses_from_email: str | None = None,
 ) -> str:
     dynamo.start_step(jobs_table, job_id, "finish")
     job = dynamo.get_job(jobs_table, job_id)
@@ -52,8 +51,6 @@ def run_finish(
 
     dynamo.update_job(jobs_table, job_id, status="DONE", thumbnail_key=thumb_key)
     events.publish("job.rendered", job_id, user_id=job.user_id, status="DONE")
-    if job.notify_email:
-        notify.send_completion_email(ses_from_email, job.notify_email, signed_url)
     dynamo.finish_step(jobs_table, job_id, "finish")
     return signed_url
 
@@ -68,6 +65,5 @@ def handler(event: dict, context=None) -> dict:
             cloudfront_domain=os.environ["CLOUDFRONT_DOMAIN"],
             key_pair_id=os.environ["CLOUDFRONT_KEY_PAIR_ID"],
             private_key_pem=os.environ["CLOUDFRONT_PRIVATE_KEY_PEM"].encode(),
-            ses_from_email=os.environ["SES_FROM_EMAIL"],
         )
     return {"job_id": job_id, "status": "DONE", "url": signed_url}

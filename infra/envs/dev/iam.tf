@@ -378,11 +378,6 @@ resource "aws_iam_role_policy" "finish" {
         Effect   = "Allow"
         Action   = ["events:PutEvents"]
         Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["ses:SendEmail", "ses:SendRawEmail"]
-        Resource = aws_ses_email_identity.from.arn
       }
     ]
   })

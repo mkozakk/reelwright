@@ -104,53 +104,6 @@ def test_run_finish_verifies_thumbnails_and_signs_a_url(aws_stack, tmp_path, mon
 
 
 @pytest.mark.media
-def test_run_finish_sends_a_completion_email_when_notify_email_is_set(aws_stack, tmp_path, monkeypatch):
-    import services.finish.handler as finish_handler
-
-    sent = []
-    monkeypatch.setattr(
-        finish_handler.notify, "send_completion_email", lambda *a, **kw: sent.append((a, kw))
-    )
-
-    job_id = "job1"
-    local_out = tmp_path / "montage.mp4"
-    render_main(
-        [
-            "render",
-            str(SAMPLE_DIR / "plan_basic.json"),
-            str(local_out),
-            "--source", f"src1={SAMPLE_DIR / 'clip_a.mp4'}",
-        ]
-    )
-    output_key = s3keys.output_key(job_id)
-    s3 = boto3.client("s3", region_name="us-east-1")
-    s3.upload_file(str(local_out), aws_stack["output_bucket"], output_key)
-
-    table = boto3.resource("dynamodb", region_name="us-east-1").Table(aws_stack["jobs_table"])
-    table.put_item(
-        Item={
-            "pk": dynamo.job_pk(job_id),
-            "status": "RENDERING",
-            "output_key": output_key,
-            "notify_email": "watcher@example.com",
-        }
-    )
-
-    signed_url = run_finish(
-        job_id,
-        jobs_table=aws_stack["jobs_table"],
-        output_bucket=aws_stack["output_bucket"],
-        cloudfront_domain="cdn.example.com",
-        key_pair_id="KEYPAIRID",
-        private_key_pem=_throwaway_keypair(),
-        ses_from_email="noreply@example.com",
-    )
-
-    [(args, kwargs)] = sent
-    assert args == ("noreply@example.com", "watcher@example.com", signed_url)
-
-
-@pytest.mark.media
 def test_run_finish_rejects_zero_duration_output(aws_stack, tmp_path, monkeypatch):
     job_id = "job1"
     local_out = tmp_path / "montage.mp4"

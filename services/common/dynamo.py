@@ -66,7 +66,6 @@ def get_job(table_name: str, job_id: str) -> JobRecord:
         output_key=item.get("output_key"),
         thumbnail_key=item.get("thumbnail_key"),
         error=item.get("error"),
-        notify_email=item.get("notify_email"),
         ttl=item.get("ttl"),
         timings=dict(item.get("timings", {})),
     )

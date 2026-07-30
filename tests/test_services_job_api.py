@@ -124,12 +124,9 @@ def test_validate_complete_request_rejects_bad_input():
 def test_build_job_item_shapes_the_record():
     created = logic.now()
     request = logic.validate_create_request(_valid_create(prefs={"vibe": "calm"}))
-    item = logic.build_job_item(
-        "abc", "source", "raw/abc/source", request, created, "user-1", "user@example.com"
-    )
+    item = logic.build_job_item("abc", "source", "raw/abc/source", request, created, "user-1")
     assert item["pk"] == "JOB#abc"
     assert item["user_id"] == "user-1"
-    assert item["notify_email"] == "user@example.com"
     assert item["status"] == "UPLOADING"
     assert item["created_at"] == created.isoformat()
     assert item["sources"]["source"] == {
