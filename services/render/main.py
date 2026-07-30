@@ -45,8 +45,17 @@ def run_render_job(job_id: str, jobs_table: str, work_bucket: str, output_bucket
         durations = [clip_output_duration(clip) for clip in plan.clips]
         concat_plan = build_concat_plan(plan, durations)
 
+        music_override = None
+        track = plan.audio.music_track
+        if track and track.startswith("user:"):
+            # job-scoped asset -- resolved by looking the id up in this job's
+            # own work-bucket assets, never a client-supplied path
+            # (docs/DESIGN.md §10 no-file-references layer)
+            asset_id = track.removeprefix("user:")
+            music_override = storage.download(work_bucket, s3keys.work_asset_key(job_id, asset_id), tmp_dir)
+
         out_path = tmp_dir / "montage.mp4"
-        command = compile_plan(concat_plan, sources, out_path)
+        command = compile_plan(concat_plan, sources, out_path, music_override=music_override)
         run_ffmpeg(command.args)
 
         key = s3keys.output_key(job_id)

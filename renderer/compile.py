@@ -173,11 +173,18 @@ def _compile_subtitles(labels: _Labeler, cur_v: str, ass_path: Path | None):
     return [f"[{cur_v}]subtitles={option}[{v_out}]"], v_out
 
 
-def _compile_music(plan: EditPlan, labels: _Labeler, cur_a: str, cur_duration: float, clip_count: int):
-    if not plan.audio.music_track:
+def _compile_music(
+    plan: EditPlan,
+    labels: _Labeler,
+    cur_a: str,
+    cur_duration: float,
+    clip_count: int,
+    music_override: Path | None,
+):
+    if music_override is None and not plan.audio.music_track:
         return [], [], cur_a
 
-    music_path = music_presets.resolve_track(plan.audio.music_track)
+    music_path = music_override or music_presets.resolve_track(plan.audio.music_track)
     music_index = clip_count
     inputs = ["-stream_loop", "-1", "-i", str(music_path)]
 
@@ -218,6 +225,7 @@ def compile_plan(
     sources: dict[str, Path],
     output_path: Path,
     ass_path: Path | None = None,
+    music_override: Path | None = None,
 ) -> CompiledCommand:
     if not plan.clips:
         raise CompileError("plan has no clips")
@@ -242,7 +250,7 @@ def compile_plan(
     all_filters += subtitle_filters
 
     music_inputs, music_filters, cur_a = _compile_music(
-        plan, labels, cur_a, cur_duration, len(plan.clips)
+        plan, labels, cur_a, cur_duration, len(plan.clips), music_override
     )
     all_filters += music_filters
 
