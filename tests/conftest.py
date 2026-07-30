@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -7,6 +8,12 @@ from moto import mock_aws
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
+
+# must be set before any services.* module imports services.common.tracing,
+# which calls patch_all() at import time -- otherwise the patched boto3
+# clients try to record real X-Ray segments against a context that doesn't
+# exist under moto.
+os.environ["AWS_XRAY_SDK_ENABLED"] = "false"
 
 OUT_DIR = REPO_ROOT / "out"
 SAMPLE_DIR = REPO_ROOT / "assets" / "sample"
@@ -38,7 +45,21 @@ def aws_stack(aws_credentials):
         dynamodb.create_table(
             TableName=JOBS_TABLE,
             KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}],
-            AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}],
+            AttributeDefinitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "user_id", "AttributeType": "S"},
+                {"AttributeName": "created_at", "AttributeType": "S"},
+            ],
+            GlobalSecondaryIndexes=[
+                {
+                    "IndexName": "GSI1",
+                    "KeySchema": [
+                        {"AttributeName": "user_id", "KeyType": "HASH"},
+                        {"AttributeName": "created_at", "KeyType": "RANGE"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                }
+            ],
             BillingMode="PAY_PER_REQUEST",
         )
         s3 = boto3.resource("s3", region_name="us-east-1")

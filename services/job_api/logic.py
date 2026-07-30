@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
-import re
 import uuid
 from datetime import datetime, timezone
 
@@ -20,9 +20,8 @@ MAX_PARTS = 10000  # S3's hard ceiling on parts per upload
 UPLOAD_URL_TTL = 3600  # 60 min -- 500 MB on a slow uplink can exceed 15 (docs.DESIGN.md 9)
 PLAYBACK_URL_TTL = 900  # 15 min for every non-upload signed URL
 JOB_TTL_SECONDS = 30 * 24 * 3600  # docs.DESIGN.md 6: item ttl 30 days
-IP_DAILY_CAP = 20  # soft denial-of-wallet rail until Cognito (docs.DESIGN.md 10)
-
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+IP_DAILY_CAP = 20  # soft denial-of-wallet rail, kept as defense-in-depth (docs.DESIGN.md 10)
+USER_DAILY_CAP = 3  # primary quota now that jobs are authenticated (docs/phases/phase-7.md)
 
 
 class ApiError(Exception):
@@ -88,8 +87,10 @@ def _validate_prefs(raw: object) -> dict:
 
 
 def validate_create_request(body: dict) -> dict:
-    """Normalise POST /jobs input into {content_type, size, prefs, notify_email}.
-    Caps are enforced here at the boundary and re-checked in Probe (docs.DESIGN.md 5)."""
+    """Normalise POST /jobs input into {content_type, size, prefs}. notify_email
+    comes from the Cognito email claim, not free-text body input (closes the
+    attacker-chosen-recipient gap docs/phases/phase-5.md describes). Caps are
+    enforced here at the boundary and re-checked in Probe (docs.DESIGN.md 5)."""
     content_type = body.get("content_type")
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise ApiError(400, f"'content_type' must be one of {sorted(ALLOWED_CONTENT_TYPES)}")
@@ -100,16 +101,10 @@ def validate_create_request(body: dict) -> dict:
     if size > MAX_FILE_BYTES:
         raise ApiError(400, f"'size' exceeds the {MAX_FILE_BYTES}-byte limit")
 
-    notify_email = body.get("notify_email")
-    if notify_email is not None:
-        if not isinstance(notify_email, str) or not _EMAIL_RE.match(notify_email):
-            raise ApiError(400, "'notify_email' is not a valid email address")
-
     return {
         "content_type": content_type,
         "size": size,
         "prefs": _validate_prefs(body.get("prefs")),
-        "notify_email": notify_email,
     }
 
 
@@ -150,11 +145,16 @@ def validate_complete_request(body: dict) -> dict:
     return {"upload_id": upload_id, "parts": parts}
 
 
-def build_job_item(job_id: str, src_id: str, key: str, request: dict, created: datetime) -> dict:
-    """The DynamoDB item for a freshly created job. status/created_at are what
-    GSI1 (status + created_at) will project on for the Phase 7 per-user list."""
-    item = {
+def build_job_item(
+    job_id: str, src_id: str, key: str, request: dict, created: datetime, user_id: str, email: str
+) -> dict:
+    """The DynamoDB item for a freshly created job. user_id/created_at are
+    what GSI1 projects on for the per-user job list (docs/phases/phase-7.md).
+    notify_email is the Cognito account's own verified email, not user input."""
+    return {
         "pk": f"JOB#{job_id}",
+        "user_id": user_id,
+        "notify_email": email,
         "status": "UPLOADING",
         "created_at": created.isoformat(),
         "sources": {
@@ -163,21 +163,38 @@ def build_job_item(job_id: str, src_id: str, key: str, request: dict, created: d
         "prefs": request["prefs"],
         "ttl": int(created.timestamp()) + JOB_TTL_SECONDS,
     }
-    if request["notify_email"] is not None:
-        item["notify_email"] = request["notify_email"]
-    return item
 
 
 def client_ip(event: dict) -> str:
     return event.get("requestContext", {}).get("http", {}).get("sourceIp", "unknown")
 
 
-def ip_cap_day(created: datetime) -> str:
+def claims(event: dict) -> dict:
+    """Verified JWT claims the API Gateway authorizer attaches to the event --
+    no token verification happens in this Lambda, API Gateway already did it."""
+    return event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
+
+
+def user_id_from_claims(event: dict) -> str:
+    sub = claims(event).get("sub")
+    if not sub:
+        raise ApiError(401, "missing authenticated user")
+    return sub
+
+
+def cap_day(created: datetime) -> str:
     return created.strftime("%Y-%m-%d")
 
 
-def ip_cap_ttl(created: datetime) -> int:
+def cap_ttl(created: datetime) -> int:
     return int(created.timestamp()) + 2 * 24 * 3600
+
+
+def rerender_execution_name(job_id: str, edit_plan_json: str) -> str:
+    # idempotent -- a double-submit of the identical edited plan doesn't
+    # start a second execution, same approach as services/trigger/logic.py
+    payload = f"{job_id}/{edit_plan_json}"
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def status_response(job) -> dict:

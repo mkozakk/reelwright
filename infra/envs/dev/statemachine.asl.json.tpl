@@ -1,7 +1,18 @@
 {
   "Comment": "montage-pipeline: Probe -> Analyze (Parallel) -> Plan -> Cut (Map) -> Render -> Finish",
-  "StartAt": "Probe",
+  "StartAt": "RouteMode",
   "States": {
+    "RouteMode": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "rerender",
+          "Next": "PrepareCut"
+        }
+      ],
+      "Default": "Probe"
+    },
     "Probe": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -254,6 +265,25 @@
           ":failed": { "S": "FAILED" },
           ":error": { "S.$": "States.Format('{}: {}', $.error.Error, $.error.Cause)" }
         }
+      },
+      "ResultPath": null,
+      "Next": "PublishJobFailedEvent"
+    },
+    "PublishJobFailedEvent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Source": "montage.pipeline",
+            "DetailType": "job.failed",
+            "Detail": {
+              "job_id.$": "$.job_id",
+              "status": "FAILED",
+              "error.$": "States.Format('{}: {}', $.error.Error, $.error.Cause)"
+            }
+          }
+        ]
       },
       "ResultPath": null,
       "Next": "SendToDlq"

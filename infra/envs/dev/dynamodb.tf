@@ -9,7 +9,7 @@ resource "aws_dynamodb_table" "jobs" {
   }
 
   attribute {
-    name = "status"
+    name = "user_id"
     type = "S"
   }
 
@@ -18,11 +18,10 @@ resource "aws_dynamodb_table" "jobs" {
     type = "S"
   }
 
-  # unused until per-user job listing (Phase 7) -- created now to avoid a
-  # later schema migration
+  # per-user job listing (Phase 7) -- Query by user_id, newest first
   global_secondary_index {
     name            = "GSI1"
-    hash_key        = "status"
+    hash_key        = "user_id"
     range_key       = "created_at"
     projection_type = "ALL"
   }

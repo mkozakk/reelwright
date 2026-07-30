@@ -16,7 +16,9 @@ from renderer.edit_plan.validate import (
     validate_plan,
 )
 from renderer.presets import music as music_presets
-from services.common import dynamo, storage
+from services.common import dynamo, events, storage
+from services.common.logging import get_logger, log_job
+from services.common.tracing import segment
 
 from . import evidence as evidence_mod
 from . import fallback_planner, prompt
@@ -41,6 +43,8 @@ def run_plan(
     guardrail_version: str | None = None,
 ) -> None:
     dynamo.update_job(jobs_table, job_id, status="PLANNING")
+    dynamo.start_step(jobs_table, job_id, "plan")
+    log = get_logger(__name__, job_id)
 
     job = dynamo.get_job(jobs_table, job_id)
     src_id = _single_source(job.analysis_keys)
@@ -68,7 +72,7 @@ def run_plan(
         guardrail_version=guardrail_version,
     )
     plan, meta = _plan_with_llm(
-        planner, evidence, prompt_prefs, job.prefs, known_sources, set(manifest)
+        planner, evidence, prompt_prefs, job.prefs, known_sources, set(manifest), log
     )
 
     if plan is None:
@@ -81,11 +85,23 @@ def run_plan(
     # Phase 5 subtitle renderer lands. Transcription still runs as evidence.
     plan.subtitles.enabled = False
 
-    print(f"[plan] source={meta['source']} attempts={meta['attempts']} retries={meta['retries']}")
+    log.info("source=%s attempts=%d retries=%d", meta["source"], meta["attempts"], meta["retries"])
     meta["cost_usd"] = _cost(meta)
     dynamo.update_job(
         jobs_table, job_id, edit_plan=plan.model_dump(), planning=meta, status="RENDERING"
     )
+    events.publish(
+        "job.planned",
+        job_id,
+        user_id=job.user_id,
+        status="RENDERING",
+        source=meta["source"],
+        model=meta["model"],
+        input_tokens=meta["input_tokens"],
+        output_tokens=meta["output_tokens"],
+        cost_usd=meta["cost_usd"],
+    )
+    dynamo.finish_step(jobs_table, job_id, "plan")
 
 
 def _plan_with_llm(
@@ -95,6 +111,7 @@ def _plan_with_llm(
     prefs: dict,
     known_sources: list[str],
     valid_tracks: set[str],
+    log,
 ) -> tuple[EditPlan | None, dict]:
     meta = {
         "source": "llm",
@@ -115,15 +132,15 @@ def _plan_with_llm(
         meta["input_tokens"] += usage["input_tokens"]
         meta["output_tokens"] += usage["output_tokens"]
 
-        raw = _remap_unknown_sources(raw, known_sources)
-        raw = _drop_unknown_music(raw, valid_tracks)
-        raw = _drop_micro_clips(raw)
+        raw = _remap_unknown_sources(raw, known_sources, log)
+        raw = _drop_unknown_music(raw, valid_tracks, log)
+        raw = _drop_micro_clips(raw, log)
         plan, errors = _try_validate(raw, prefs)
         if plan is not None:
             return plan, meta
         # structural/schema error strings only -- never plan content, which can
         # carry transcript-derived text (docs/DESIGN.md §10 layer 7)
-        print(f"[plan] attempt {attempt} rejected: {errors}")
+        log.warning("attempt %d rejected: %s", attempt, errors)
         if attempt == 0:
             meta["retries"] = 1
             messages = prompt.retry_messages(evidence, prompt_prefs, raw or {}, errors)
@@ -131,7 +148,7 @@ def _plan_with_llm(
     return None, meta
 
 
-def _remap_unknown_sources(raw: dict | None, known_sources: list[str]) -> dict | None:
+def _remap_unknown_sources(raw: dict | None, known_sources: list[str], log) -> dict | None:
     # The model sometimes invents a `source` name (e.g. "source_clip") that the
     # renderer can't resolve, crashing the Cut step. With a single source there
     # is no ambiguity -- any reference can only mean that one, so remap it.
@@ -147,12 +164,12 @@ def _remap_unknown_sources(raw: dict | None, known_sources: list[str]) -> dict |
             remapped += 1
         clips.append(clip)
     if remapped:
-        print(f"[plan] remapped {remapped} clip source(s) to '{sole}'")
+        log.info("remapped %d clip source(s) to '%s'", remapped, sole)
         return {**raw, "clips": clips}
     return raw
 
 
-def _drop_unknown_music(raw: dict | None, valid_tracks: set[str]) -> dict | None:
+def _drop_unknown_music(raw: dict | None, valid_tracks: set[str], log) -> dict | None:
     # music_track is a free string the renderer resolves against the bundled
     # manifest -- an invented id (e.g. "upbeat-01") raises there and fails the
     # render. Drop an unknown track to no-music rather than crash.
@@ -161,11 +178,11 @@ def _drop_unknown_music(raw: dict | None, valid_tracks: set[str]) -> dict | None
     track = raw["audio"].get("music_track")
     if track is None or track in valid_tracks:
         return raw
-    print(f"[plan] dropped unknown music_track '{track}'")
+    log.info("dropped unknown music_track '%s'", track)
     return {**raw, "audio": {**raw["audio"], "music_track": None}}
 
 
-def _drop_micro_clips(raw: dict | None) -> dict | None:
+def _drop_micro_clips(raw: dict | None, log) -> dict | None:
     # The model persistently anchors sub-0.5s clips to (often noisy) scene cuts
     # and ignores the min-length rule even when the retry names it. Rather than
     # let one 0.3s clip reject the whole plan into fallback, drop just the too-
@@ -176,7 +193,7 @@ def _drop_micro_clips(raw: dict | None) -> dict | None:
     kept = [c for c in raw["clips"] if not _is_micro_clip(c)]
     if len(kept) == len(raw["clips"]):
         return raw
-    print(f"[plan] dropped {len(raw['clips']) - len(kept)} clip(s) shorter than {MIN_CLIP_SECONDS}s")
+    log.info("dropped %d clip(s) shorter than %ss", len(raw["clips"]) - len(kept), MIN_CLIP_SECONDS)
     return {**raw, "clips": kept}
 
 
@@ -223,14 +240,15 @@ def _load(analysis_keys: dict, category: str, src_id: str, work_bucket: str, tmp
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
-    run_plan(
-        job_id,
-        jobs_table=os.environ["JOBS_TABLE"],
-        work_bucket=os.environ["WORK_BUCKET"],
-        model_id=os.environ.get("NOVA_MODEL_ID", DEFAULT_MODEL_ID),
-        region=os.environ.get("BEDROCK_REGION"),
-        max_output_tokens=int(os.environ.get("PLAN_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS)),
-        guardrail_id=os.environ.get("GUARDRAIL_ID") or None,
-        guardrail_version=os.environ.get("GUARDRAIL_VERSION") or None,
-    )
+    with log_job(__name__, job_id), segment(__name__, job_id):
+        run_plan(
+            job_id,
+            jobs_table=os.environ["JOBS_TABLE"],
+            work_bucket=os.environ["WORK_BUCKET"],
+            model_id=os.environ.get("NOVA_MODEL_ID", DEFAULT_MODEL_ID),
+            region=os.environ.get("BEDROCK_REGION"),
+            max_output_tokens=int(os.environ.get("PLAN_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS)),
+            guardrail_id=os.environ.get("GUARDRAIL_ID") or None,
+            guardrail_version=os.environ.get("GUARDRAIL_VERSION") or None,
+        )
     return {"job_id": job_id}

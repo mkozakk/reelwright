@@ -200,6 +200,25 @@ def test_bedrock_unavailable_falls_back_without_retrying(aws_stack):
     EditPlan.model_validate(job.edit_plan)
 
 
+def test_run_plan_publishes_a_job_planned_event_with_cost_and_token_fields(aws_stack, monkeypatch):
+    _seed(aws_stack, "job1")
+    import services.plan.handler as plan_handler
+
+    published = []
+    monkeypatch.setattr(plan_handler.events, "publish", lambda *a, **kw: published.append((a, kw)))
+    planner = FakePlanner([_llm_plan()])
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=planner)
+
+    [(args, kwargs)] = published
+    assert args == ("job.planned", "job1")
+    assert kwargs["status"] == "RENDERING"
+    assert kwargs["source"] == "llm"
+    assert kwargs["input_tokens"] == USAGE["input_tokens"]
+    assert kwargs["output_tokens"] == USAGE["output_tokens"]
+    assert kwargs["cost_usd"] > 0
+
+
 def test_run_plan_reaches_planning_status_before_the_loudness_download(aws_stack, monkeypatch):
     _seed(aws_stack, "job1")
     import services.plan.handler as plan_handler

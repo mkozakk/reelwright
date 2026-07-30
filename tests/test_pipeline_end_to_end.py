@@ -116,9 +116,8 @@ def _run_cut_render_finish(aws_stack, job_id: str, rsa_sha1_signing_available: b
         cut_result = cut_handler({"job_id": job_id, "clip_indices": [index]})
         assert cut_result["clips"][0]["index"] == index
 
-    s3 = boto3.client("s3", region_name="us-east-1")
-    listing = s3.list_objects_v2(Bucket=aws_stack["work_bucket"], Prefix=s3keys.work_clips_prefix(job_id))
-    assert listing["KeyCount"] == len(plan["clips"])
+    job = dynamo.get_job(aws_stack["jobs_table"], job_id)
+    assert len(job.cut_keys) == len(plan["clips"])
 
     render_result = run_render_job(
         job_id,

@@ -16,6 +16,10 @@ resource "aws_lambda_function" "trigger" {
   timeout          = 10
   memory_size      = 128
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       JOBS_TABLE        = aws_dynamodb_table.jobs.name
@@ -34,6 +38,10 @@ resource "aws_lambda_function" "semaphore_acquire" {
   timeout          = 10
   memory_size      = 128
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       JOBS_TABLE             = aws_dynamodb_table.jobs.name
@@ -51,6 +59,10 @@ resource "aws_lambda_function" "semaphore_release" {
   source_code_hash = filebase64sha256(local.semaphore_zip)
   timeout          = 10
   memory_size      = 128
+
+  tracing_config {
+    mode = "Active"
+  }
 
   environment {
     variables = {
@@ -89,6 +101,10 @@ resource "aws_lambda_function" "probe" {
     command = ["services.probe.handler.handler"]
   }
 
+  tracing_config {
+    mode = "Active"
+  }
+
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
     security_group_ids = [aws_security_group.isolated_lambda.id]
@@ -113,6 +129,10 @@ resource "aws_lambda_function" "analyze_loudness" {
 
   image_config {
     command = ["services.analyze_loudness.handler.handler"]
+  }
+
+  tracing_config {
+    mode = "Active"
   }
 
   vpc_config {
@@ -141,6 +161,10 @@ resource "aws_lambda_function" "analyze_scenes" {
 
   image_config {
     command = ["services.analyze_scenes.handler.handler"]
+  }
+
+  tracing_config {
+    mode = "Active"
   }
 
   vpc_config {
@@ -177,6 +201,10 @@ resource "aws_lambda_function" "analyze_transcribe" {
     command = ["services.analyze_transcribe.handler.handler"]
   }
 
+  tracing_config {
+    mode = "Active"
+  }
+
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
     security_group_ids = [aws_security_group.isolated_lambda.id]
@@ -204,6 +232,10 @@ resource "aws_lambda_function" "plan" {
     command = ["services.plan.handler.handler"]
   }
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       JOBS_TABLE             = aws_dynamodb_table.jobs.name
@@ -229,6 +261,10 @@ resource "aws_lambda_function" "cut_prepare" {
     command = ["services.cut.prepare.handler"]
   }
 
+  tracing_config {
+    mode = "Active"
+  }
+
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
     security_group_ids = [aws_security_group.isolated_lambda.id]
@@ -251,6 +287,10 @@ resource "aws_lambda_function" "cut" {
 
   image_config {
     command = ["services.cut.handler.handler"]
+  }
+
+  tracing_config {
+    mode = "Active"
   }
 
   vpc_config {
@@ -283,6 +323,10 @@ resource "aws_lambda_function" "job_api" {
     command = ["services.job_api.handler.handler"]
   }
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       JOBS_TABLE                 = aws_dynamodb_table.jobs.name
@@ -291,6 +335,7 @@ resource "aws_lambda_function" "job_api" {
       CLOUDFRONT_KEY_PAIR_ID     = aws_cloudfront_public_key.signing.id
       CLOUDFRONT_PRIVATE_KEY_PEM = tls_private_key.cloudfront_signing.private_key_pem
       CORS_ORIGIN                = var.frontend_origin
+      STATE_MACHINE_ARN          = aws_sfn_state_machine.pipeline.arn
     }
   }
 }
@@ -307,6 +352,10 @@ resource "aws_lambda_function" "finish" {
     command = ["services.finish.handler.handler"]
   }
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       JOBS_TABLE                 = aws_dynamodb_table.jobs.name
@@ -314,6 +363,7 @@ resource "aws_lambda_function" "finish" {
       CLOUDFRONT_DOMAIN          = aws_cloudfront_distribution.output.domain_name
       CLOUDFRONT_KEY_PAIR_ID     = aws_cloudfront_public_key.signing.id
       CLOUDFRONT_PRIVATE_KEY_PEM = tls_private_key.cloudfront_signing.private_key_pem
+      SES_FROM_EMAIL             = var.ses_from_email
     }
   }
 }
