@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-MAX_SCENES = 40  # absolute ceiling on scene cuts in the bundle
+MAX_SCENES = 40  # absolute ceiling on scene cuts per source in the bundle
 MIN_SECONDS_PER_SCENE = 2.0  # scdet runs at a low threshold and floods short
 # low-motion clips with noise cuts; cap the count relative to length so the
 # model gets a handful of real boundaries, not one per frame
@@ -10,26 +10,38 @@ _SAMPLE_INTERVAL_SECONDS = 1.0
 USER_PREF_KEYS = ("vibe", "max_duration", "aspect", "subtitles_enabled")
 
 
-def build_evidence(
-    loudness: dict | None,
-    scenes: dict | None,
-    transcript: dict | None,
-    source_ids: list[str] | None = None,
-    music_tracks: list[dict] | None = None,
-) -> dict:
-    loudness_points = (loudness or {}).get("points", [])
-    scene_cuts = (scenes or {}).get("cuts", [])
-    words = (transcript or {}).get("words", [])
-    duration = _source_duration(loudness_points)
+def build_evidence(per_source: dict[str, dict], music_tracks: list[dict] | None = None) -> dict:
+    """per_source: {src_id: {"loudness": {...}|None, "scenes": {...}|None,
+    "transcript": {...}|None}}. Every phrase/loudness point/scene cut carries
+    its source id so the LLM can reason and select clips across sources
+    (docs/phases/phase-8.md); MAX_SCENES/MIN_SECONDS_PER_SCENE capping is
+    applied per source so one long source can't starve the others' evidence."""
+    sources: list[dict] = []
+    loudness_points: list[dict] = []
+    scene_cuts: list[dict] = []
+    phrases: list[dict] = []
+
+    for src_id, artifacts in per_source.items():
+        artifacts = artifacts or {}
+        points = (artifacts.get("loudness") or {}).get("points", [])
+        cuts = (artifacts.get("scenes") or {}).get("cuts", [])
+        words = (artifacts.get("transcript") or {}).get("words", [])
+        duration = _source_duration(points)
+
+        sources.append({"id": src_id, "duration": duration})
+        loudness_points += [
+            {"source": src_id, "t": round(p["t"], 1), "level_db": round(p["level_db"], 1)}
+            for p in points
+        ]
+        scene_cuts += [{"source": src_id, **c} for c in _top_scenes(cuts, duration)]
+        phrases += [{"source": src_id, **ph} for ph in _phrases_from_words(words)]
+
     return {
-        "sources": source_ids or [],
+        "sources": sources,
         "music_tracks": music_tracks or [],
-        "source_duration": duration,
-        "loudness_points": [
-            {"t": round(p["t"], 1), "level_db": round(p["level_db"], 1)} for p in loudness_points
-        ],
-        "scene_cuts": _top_scenes(scene_cuts, duration),
-        "phrases": _phrases_from_words(words),
+        "loudness_points": loudness_points,
+        "scene_cuts": scene_cuts,
+        "phrases": phrases,
     }
 
 

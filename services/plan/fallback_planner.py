@@ -27,54 +27,69 @@ def _fallback_single_clip(src_id: str, budget: float) -> dict:
 
 
 def _select_peak_clips(
-    src_id: str, points: list[dict], source_duration: float, n: int, half_window: float
+    sources: dict[str, dict], n: int, half_window: float
 ) -> list[dict]:
-    ranked = sorted(points, key=lambda point: point["level_db"], reverse=True)
+    # rank peaks globally across all sources, but keep the overlap check
+    # scoped per source -- two windows on different sources never "overlap",
+    # matching the validator's own per-source overlap rule (docs/phases/phase-8.md)
+    all_points = [
+        (src_id, point) for src_id, data in sources.items() for point in data["points"]
+    ]
+    ranked = sorted(all_points, key=lambda sp: sp[1]["level_db"], reverse=True)
     selected: list[dict] = []
+    selected_by_source: dict[str, list[dict]] = {}
 
-    for point in ranked:
+    for src_id, point in ranked:
         if len(selected) >= n:
             break
 
+        source_duration = sources[src_id]["duration"]
         t = point["t"]
         start = max(0.0, t - half_window)
         end = min(source_duration, t + half_window)
         if end - start < MIN_CLIP_SECONDS:
             continue  # window collapses too small at a source boundary
 
-        overlaps_existing = any(start < clip["end"] and clip["start"] < end for clip in selected)
+        existing = selected_by_source.get(src_id, [])
+        overlaps_existing = any(start < clip["end"] and clip["start"] < end for clip in existing)
         if overlaps_existing:
             continue  # skip a lower-ranked peak rather than shrinking it
 
-        selected.append(
-            {
-                "source": src_id,
-                "start": start,
-                "end": end,
-                "reason": f"loudness peak {point['level_db']:.1f} dB at {t:.1f}s",
-                "speed": 1.0,
-            }
-        )
+        clip = {
+            "source": src_id,
+            "start": start,
+            "end": end,
+            "reason": f"loudness peak {point['level_db']:.1f} dB at {t:.1f}s",
+            "speed": 1.0,
+        }
+        selected.append(clip)
+        selected_by_source.setdefault(src_id, []).append(clip)
 
     return selected
 
 
-def build_plan(src_id: str, loudness_points: list[dict], prefs: dict) -> dict:
+def build_plan(sources: dict[str, dict], prefs: dict) -> dict:
+    """sources: {src_id: {"points": list[dict], "duration": float}} for every
+    video source in the session (docs/phases/phase-8.md) -- ranks loudness
+    peaks globally across sources, so the fallback montage interleaves clips
+    from whichever sources have the loudest moments, not just the first one."""
     prefs = prefs or {}
     budget = prefs.get("max_duration", 60.0)
 
-    if not loudness_points:
-        clips = [_fallback_single_clip(src_id, budget)]
+    all_points = [p for data in sources.values() for p in data["points"]]
+    if not all_points:
+        first_src = next(iter(sources))
+        clips = [_fallback_single_clip(first_src, budget)]
     else:
-        source_duration = max(point["t"] for point in loudness_points) + _SAMPLE_INTERVAL_SECONDS
         n = max(1, min(MAX_CLIPS, math.floor(budget / (2 * CLIP_HALF_WINDOW_SECONDS))))
         # n floors to at least 1 even when budget is under one full +/-3s clip --
         # shrink the window to fit rather than emit a clip over max_duration.
         half_window = min(CLIP_HALF_WINDOW_SECONDS, budget / (2 * n))
-        clips = _select_peak_clips(src_id, loudness_points, source_duration, n, half_window)
+        clips = _select_peak_clips(sources, n, half_window)
         if not clips:
-            clips = [_fallback_single_clip(src_id, budget)]
-        clips.sort(key=lambda clip: clip["start"])
+            first_src = next(iter(sources))
+            clips = [_fallback_single_clip(first_src, budget)]
+        clips.sort(key=lambda clip: (clip["source"], clip["start"]))
 
     return {
         "version": "1",
