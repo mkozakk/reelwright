@@ -6,13 +6,20 @@ import math
 import uuid
 from datetime import datetime, timezone
 
+from services.common import s3keys, session_caps
+
 MAX_FILE_BYTES = 500 * 1024 * 1024  # mirrors renderer.probe; re-checked in Probe
-ALLOWED_CONTENT_TYPES = {"video/mp4", "video/quicktime", "video/webm"}
+ALLOWED_VIDEO_CONTENT_TYPES = {"video/mp4", "video/quicktime", "video/webm"}
+# mp3 accepted alongside aac/opus containers (ADR-4, docs/phases/phase-8.md) --
+# a real UX cost avoided at the cost of a wider untrusted-media decoder
+# surface in Probe (still VPC-isolated/no-egress).
+ALLOWED_AUDIO_CONTENT_TYPES = {"audio/mp4", "audio/aac", "audio/ogg", "audio/mpeg"}
 ALLOWED_ASPECTS = {"16:9", "9:16", "1:1"}
-MAX_DURATION_SECONDS = 300  # mirrors renderer.probe MAX_DURATION_SECONDS
+MAX_DURATION_SECONDS = 300  # output.max_duration pref cap -- unrelated to
+# session_caps.MAX_SESSION_VIDEO_SECONDS (that one bounds total *uploaded*
+# video across a session; this one bounds the requested *output* length)
 MAX_VIBE_LEN = 200
 
-SRC_ID = "source"  # one file per job pre-multi-file-session (docs.DESIGN.md 12)
 MULTIPART_THRESHOLD = 100 * 1024 * 1024  # above this a single PUT is worth splitting
 PART_SIZE = 16 * 1024 * 1024  # well over S3's 5 MB per-part floor (last part may be smaller)
 MAX_PARTS = 10000  # S3's hard ceiling on parts per upload
@@ -22,6 +29,8 @@ PLAYBACK_URL_TTL = 900  # 15 min for every non-upload signed URL
 JOB_TTL_SECONDS = 30 * 24 * 3600  # docs.DESIGN.md 6: item ttl 30 days
 IP_DAILY_CAP = 20  # soft denial-of-wallet rail, kept as defense-in-depth (docs.DESIGN.md 10)
 USER_DAILY_CAP = 3  # primary quota now that jobs are authenticated (docs/phases/phase-7.md)
+# a session claims exactly one quota slot regardless of file count -- claimed
+# once per POST /jobs, same as a single-file job
 
 
 class ApiError(Exception):
@@ -86,22 +95,43 @@ def _validate_prefs(raw: object) -> dict:
     return prefs
 
 
-def validate_create_request(body: dict) -> dict:
-    """Normalise POST /jobs input into {content_type, size, prefs}. Caps are
-    enforced here at the boundary and re-checked in Probe (docs.DESIGN.md 5)."""
-    content_type = body.get("content_type")
-    if content_type not in ALLOWED_CONTENT_TYPES:
-        raise ApiError(400, f"'content_type' must be one of {sorted(ALLOWED_CONTENT_TYPES)}")
+def _validate_file(raw: object) -> dict:
+    if not isinstance(raw, dict):
+        raise ApiError(400, "each file must be an object")
 
-    size = body.get("size")
+    content_type = raw.get("content_type")
+    if content_type in ALLOWED_VIDEO_CONTENT_TYPES:
+        kind = "video"
+    elif content_type in ALLOWED_AUDIO_CONTENT_TYPES:
+        kind = "audio"
+    else:
+        allowed = sorted(ALLOWED_VIDEO_CONTENT_TYPES | ALLOWED_AUDIO_CONTENT_TYPES)
+        raise ApiError(400, f"'content_type' must be one of {allowed}")
+
+    size = raw.get("size")
     if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
         raise ApiError(400, "'size' must be a positive integer (bytes)")
     if size > MAX_FILE_BYTES:
         raise ApiError(400, f"'size' exceeds the {MAX_FILE_BYTES}-byte limit")
 
+    return {"content_type": content_type, "kind": kind, "size": size}
+
+
+def validate_create_request(body: dict) -> dict:
+    """Normalise POST /jobs input into {files, prefs}. Caps are enforced here
+    at the boundary and re-checked in Probe/SessionValidate (docs.DESIGN.md 5)."""
+    raw_files = body.get("files")
+    if not isinstance(raw_files, list) or not raw_files:
+        raise ApiError(400, "'files' must be a non-empty list")
+    if len(raw_files) > session_caps.MAX_FILES:
+        raise ApiError(400, f"'files' exceeds the {session_caps.MAX_FILES}-file limit")
+
+    files = [_validate_file(f) for f in raw_files]
+    if not any(f["kind"] == "video" for f in files):
+        raise ApiError(400, "at least one file must be a video (a session with only audio has nothing to cut)")
+
     return {
-        "content_type": content_type,
-        "size": size,
+        "files": files,
         "prefs": _validate_prefs(body.get("prefs")),
     }
 
@@ -116,7 +146,11 @@ def part_count(size: int) -> int:
 
 def validate_complete_request(body: dict) -> dict:
     """Normalise POST /jobs/{id}/complete into the shape S3's
-    CompleteMultipartUpload wants: {upload_id, parts:[{PartNumber, ETag}]}."""
+    CompleteMultipartUpload wants: {src_id, upload_id, parts:[{PartNumber, ETag}]}."""
+    src_id = body.get("src_id")
+    if not isinstance(src_id, str) or not src_id:
+        raise ApiError(400, "'src_id' is required")
+
     upload_id = body.get("upload_id")
     if not isinstance(upload_id, str) or not upload_id:
         raise ApiError(400, "'upload_id' is required")
@@ -140,21 +174,31 @@ def validate_complete_request(body: dict) -> dict:
         parts.append({"PartNumber": number, "ETag": etag})
 
     parts.sort(key=lambda p: p["PartNumber"])
-    return {"upload_id": upload_id, "parts": parts}
+    return {"src_id": src_id, "upload_id": upload_id, "parts": parts}
 
 
-def build_job_item(
-    job_id: str, src_id: str, key: str, request: dict, created: datetime, user_id: str
-) -> dict:
+def src_ids(n: int) -> list[str]:
+    return [f"src{i}" for i in range(1, n + 1)]
+
+
+def build_job_item(job_id: str, files: list[dict], request: dict, created: datetime, user_id: str) -> dict:
     """The DynamoDB item for a freshly created job. user_id/created_at are
-    what GSI1 projects on for the per-user job list (docs/phases/phase-7.md)."""
+    what GSI1 projects on for the per-user job list (docs/phases/phase-7.md).
+    src1..srcN by declaration order -- no migration concern (job records TTL
+    at 30 days, raw objects at 48h, one shared dev environment)."""
     return {
         "pk": f"JOB#{job_id}",
         "user_id": user_id,
         "status": "UPLOADING",
         "created_at": created.isoformat(),
         "sources": {
-            src_id: {"key": key, "kind": "video", "size": request["size"], "uploaded": False}
+            src_id: {
+                "key": s3keys.raw_key(job_id, src_id),
+                "kind": f["kind"],
+                "size": f["size"],
+                "uploaded": False,
+            }
+            for src_id, f in zip(src_ids(len(files)), files)
         },
         "prefs": request["prefs"],
         "ttl": int(created.timestamp()) + JOB_TTL_SECONDS,
@@ -184,6 +228,21 @@ def cap_day(created: datetime) -> str:
 
 def cap_ttl(created: datetime) -> int:
     return int(created.timestamp()) + 2 * 24 * 3600
+
+
+def hash_prefs(prefs: dict) -> str:
+    canonical = json.dumps(prefs, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def start_execution_name(job_id: str, etags: dict[str, str], prefs_hash: str) -> str:
+    # idempotent -- a double /start of the same uploaded content doesn't
+    # start a second execution. etags come from /start's own HeadObject
+    # calls (not cached from job creation), so a re-upload before /start
+    # gets a fresh ETag baked in here, same rationale as trigger's etag use.
+    etag_payload = ",".join(f"{sid}:{etags[sid]}" for sid in sorted(etags))
+    payload = f"{job_id}/{etag_payload}/{prefs_hash}"
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def rerender_execution_name(job_id: str, edit_plan_json: str) -> str:

@@ -18,10 +18,19 @@ def handler(event: dict, context=None) -> dict:
 
     bucket, key, etag = parse_trigger_event(event)
     job_id, src_id = parse_object_key(key)
-    del bucket, src_id  # not needed beyond routing -- the job record has everything else
+    del bucket  # not needed beyond routing -- the job record has everything else
 
     with log_job(__name__, job_id) as log, segment(__name__, job_id):
         job = dynamo.get_job(jobs_table, job_id)
+        if len(job.sources) != 1:
+            # the dev convenience path fires per uploaded object -- for a
+            # multi-file session the first upload's ObjectCreated would start
+            # the pipeline before the rest exist. Checked before the flip so
+            # it doesn't consume the flip for a job it isn't actually
+            # starting (POST /jobs/{id}/start owns multi-file sessions).
+            log.info("multi-file session, ignoring EventBridge convenience trigger")
+            return {"job_id": job_id, "started": False, "reason": "multi-file session"}
+
         flipped = dynamo.conditional_status_flip(jobs_table, job_id, "UPLOADING", "ANALYZING")
         if not flipped:
             log.info("already started")
@@ -33,7 +42,9 @@ def handler(event: dict, context=None) -> dict:
             sfn.start_execution(
                 stateMachineArn=state_machine_arn,
                 name=name,
-                input=json.dumps({"job_id": job_id, "mode": "new"}),
+                input=json.dumps(
+                    {"job_id": job_id, "mode": "new", "source_items": [{"job_id": job_id, "src_id": src_id}]}
+                ),
             )
         except sfn.exceptions.ExecutionAlreadyExists:
             pass

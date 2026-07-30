@@ -76,7 +76,14 @@ def test_handler_flips_status_and_starts_execution_once(aws_stack, monkeypatch):
     monkeypatch.setenv("STATE_MACHINE_ARN", state_machine["stateMachineArn"])
 
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(jobs_table)
-    table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "UPLOADING", "prefs": {}})
+    table.put_item(
+        Item={
+            "pk": dynamo.job_pk("job1"),
+            "status": "UPLOADING",
+            "prefs": {},
+            "sources": {"src1": {"key": "raw/job1/src1", "kind": "video", "size": 100, "uploaded": False}},
+        }
+    )
 
     event = _s3_event(raw_bucket, "raw/job1/src1", "etag1")
 
@@ -92,3 +99,43 @@ def test_handler_flips_status_and_starts_execution_once(aws_stack, monkeypatch):
     assert result == {"job_id": "job1", "started": False, "reason": "already started"}
     executions = sfn.list_executions(stateMachineArn=state_machine["stateMachineArn"])["executions"]
     assert len(executions) == 1
+
+
+def test_handler_ignores_multi_file_sessions(aws_stack, monkeypatch):
+    # the dev EventBridge convenience path fires per uploaded object -- for a
+    # multi-file session it must not start the pipeline on the first upload,
+    # nor consume the UPLOADING -> ANALYZING flip (POST /jobs/{id}/start owns
+    # multi-file sessions, docs/phases/phase-8.md)
+    jobs_table = aws_stack["jobs_table"]
+    raw_bucket = aws_stack["raw_bucket"]
+    monkeypatch.setenv("JOBS_TABLE", jobs_table)
+
+    sfn = boto3.client("stepfunctions", region_name="us-east-1")
+    state_machine = sfn.create_state_machine(
+        name="montage-pipeline",
+        definition=STATE_MACHINE_DEFINITION,
+        roleArn="arn:aws:iam::123456789012:role/test-role",
+    )
+    monkeypatch.setenv("STATE_MACHINE_ARN", state_machine["stateMachineArn"])
+
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(jobs_table)
+    table.put_item(
+        Item={
+            "pk": dynamo.job_pk("job1"),
+            "status": "UPLOADING",
+            "prefs": {},
+            "sources": {
+                "src1": {"key": "raw/job1/src1", "kind": "video", "size": 100, "uploaded": False},
+                "src2": {"key": "raw/job1/src2", "kind": "video", "size": 100, "uploaded": False},
+                "src3": {"key": "raw/job1/src3", "kind": "audio", "size": 100, "uploaded": False},
+            },
+        }
+    )
+
+    event = _s3_event(raw_bucket, "raw/job1/src1", "etag1")
+    result = handler(event)
+
+    assert result == {"job_id": "job1", "started": False, "reason": "multi-file session"}
+    assert dynamo.get_job(jobs_table, "job1").status == "UPLOADING"
+    executions = sfn.list_executions(stateMachineArn=state_machine["stateMachineArn"])["executions"]
+    assert len(executions) == 0
