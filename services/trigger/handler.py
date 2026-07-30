@@ -33,7 +33,7 @@ def handler(event: dict, context=None) -> dict:
             sfn.start_execution(
                 stateMachineArn=state_machine_arn,
                 name=name,
-                input=json.dumps({"job_id": job_id}),
+                input=json.dumps({"job_id": job_id, "mode": "new"}),
             )
         except sfn.exceptions.ExecutionAlreadyExists:
             pass
