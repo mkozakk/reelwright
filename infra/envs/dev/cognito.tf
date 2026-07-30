@@ -30,9 +30,18 @@ resource "aws_cognito_user_pool_domain" "users" {
   user_pool_id = aws_cognito_user_pool.users.id
 }
 
-# callback/logout URLs start out pointed at local dev serving of frontend/
-# (docs/phases/phase-7.md demo); the Stage F CloudFront domain is appended
-# once that distribution exists.
+# callback/logout URLs cover both local dev serving of frontend/
+# (var.cognito_callback_urls) and the deployed Stage F CloudFront distribution.
+locals {
+  cognito_urls = concat(
+    var.cognito_callback_urls,
+    [
+      "https://${aws_cloudfront_distribution.frontend.domain_name}/callback.html",
+      "https://${aws_cloudfront_distribution.frontend.domain_name}/index.html",
+    ]
+  )
+}
+
 resource "aws_cognito_user_pool_client" "frontend" {
   name         = "${local.name_prefix}-frontend"
   user_pool_id = aws_cognito_user_pool.users.id
@@ -44,8 +53,8 @@ resource "aws_cognito_user_pool_client" "frontend" {
   allowed_oauth_scopes                 = ["openid", "email"]
   supported_identity_providers         = ["COGNITO"]
 
-  callback_urls = var.cognito_callback_urls
-  logout_urls   = var.cognito_callback_urls
+  callback_urls = local.cognito_urls
+  logout_urls   = local.cognito_urls
 
   explicit_auth_flows = ["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
 

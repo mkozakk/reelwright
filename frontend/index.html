@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>reelwright</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>reelwright</h1>
+    <div id="account-bar" hidden>
+      <span id="account-email"></span>
+      <button id="sign-out-btn" type="button">sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="config-error" class="banner error" hidden>
+      config.js is missing. Run `terraform apply` in infra/envs/dev first --
+      it generates this file with the deployed API/Cognito settings.
+    </div>
+
+    <section id="signed-out-view">
+      <p>Upload footage, get an AI-directed montage back.</p>
+      <button id="sign-in-btn" type="button">sign in</button>
+    </section>
+
+    <section id="app-view" hidden>
+      <nav>
+        <button id="nav-upload" type="button">new job</button>
+        <button id="nav-jobs" type="button">my jobs</button>
+      </nav>
+
+      <section id="upload-view">
+        <h2>new job</h2>
+        <form id="upload-form">
+          <label>
+            video file
+            <input id="upload-file" type="file" accept="video/mp4,video/quicktime,video/webm" required>
+          </label>
+          <label>
+            vibe (optional)
+            <input id="upload-vibe" type="text" maxlength="200" placeholder="punchy highlight reel">
+          </label>
+          <label>
+            aspect
+            <select id="upload-aspect">
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+              <option value="1:1">1:1</option>
+            </select>
+          </label>
+          <label>
+            <input id="upload-subtitles" type="checkbox">
+            subtitles
+          </label>
+          <button type="submit">upload &amp; start</button>
+        </form>
+        <div id="upload-progress" hidden>
+          <progress id="upload-progress-bar" max="100" value="0"></progress>
+          <span id="upload-progress-label"></span>
+        </div>
+        <div id="upload-error" class="banner error" hidden></div>
+      </section>
+
+      <section id="jobs-view" hidden>
+        <h2>my jobs</h2>
+        <ul id="jobs-list"></ul>
+      </section>
+
+      <section id="status-view" hidden>
+        <button id="back-to-jobs-btn" type="button">&larr; back to my jobs</button>
+        <h2>job <span id="status-job-id"></span></h2>
+        <p>status: <strong id="status-value"></strong></p>
+        <div id="status-error" class="banner error" hidden></div>
+
+        <div id="status-player" hidden>
+          <video id="status-video" controls></video>
+          <p><a id="status-download" href="#" target="_blank" rel="noopener">download</a></p>
+        </div>
+
+        <div id="plan-editor" hidden>
+          <h3>edit plan</h3>
+          <p id="plan-summary"></p>
+          <table>
+            <thead>
+              <tr><th>source</th><th>start (s)</th><th>end (s)</th><th>speed</th><th>reason</th><th></th></tr>
+            </thead>
+            <tbody id="plan-clips-body"></tbody>
+          </table>
+          <button id="plan-rerender-btn" type="button">rerender</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
