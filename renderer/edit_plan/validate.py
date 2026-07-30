@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -22,6 +23,12 @@ class EditPlanValidationError(Exception):
     def __init__(self, errors: list[str]) -> None:
         self.errors = errors
         super().__init__("; ".join(errors))
+
+
+@dataclass
+class SourceBounds:
+    kind: str  # "video" | "audio"
+    duration: float
 
 
 def _clamp(value: float, bounds: tuple[float, float]) -> float:
@@ -96,7 +103,43 @@ def _check_structure(plan: EditPlan) -> list[str]:
     return errors
 
 
-def validate_plan(plan: EditPlan, prefs: dict | None = None) -> EditPlan:
+def _check_sources(plan: EditPlan, sources: dict[str, SourceBounds]) -> list[str]:
+    # Invisible with one source (nothing to get wrong); with N sources an
+    # unknown/audio-only/out-of-bounds clip.source would otherwise reach
+    # Cut's job.sources[clip.source] as an unhandled KeyError instead of
+    # being rejected here, at the plan boundary.
+    errors: list[str] = []
+    for i, clip in enumerate(plan.clips):
+        bounds = sources.get(clip.source)
+        if bounds is None:
+            errors.append(f"clip {i} references unknown source '{clip.source}'")
+            continue
+        if bounds.kind != "video":
+            errors.append(
+                f"clip {i} references source '{clip.source}', which has no video stream"
+            )
+            continue
+        if clip.end > bounds.duration + DURATION_EPSILON:
+            errors.append(
+                f"clip {i} end ({clip.end}s) exceeds source '{clip.source}' "
+                f"duration ({bounds.duration}s)"
+            )
+
+    track = plan.audio.music_track
+    if track and track.startswith("user:"):
+        asset_id = track.removeprefix("user:")
+        bounds = sources.get(asset_id)
+        if bounds is None or bounds.kind != "audio":
+            errors.append(f"audio.music_track references unknown uploaded asset '{track}'")
+
+    return errors
+
+
+def validate_plan(
+    plan: EditPlan,
+    prefs: dict | None = None,
+    sources: dict[str, SourceBounds] | None = None,
+) -> EditPlan:
     prefs = prefs or {}
     if "aspect" in prefs:
         plan.output.aspect = prefs["aspect"]
@@ -106,6 +149,8 @@ def validate_plan(plan: EditPlan, prefs: dict | None = None) -> EditPlan:
     _clamp_numerics(plan)
 
     errors = _check_structure(plan)
+    if sources is not None:
+        errors += _check_sources(plan, sources)
     if errors:
         raise EditPlanValidationError(errors)
 

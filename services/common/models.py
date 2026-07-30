@@ -9,6 +9,10 @@ class SourceRef:
     kind: str
     size: int
     uploaded: bool
+    duration: float | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
 
 
 @dataclass

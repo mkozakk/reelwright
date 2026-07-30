@@ -26,8 +26,8 @@ def test_set_analysis_key_survives_two_writes_to_different_categories_on_the_sam
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
     table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "ANALYZING"})
 
-    dynamo.set_analysis_key(table_name, "job1", "loudness", {"src1": "work/job1/loudness/src1.json"})
-    dynamo.set_analysis_key(table_name, "job1", "scenes", {"src1": "work/job1/scenes/src1.json"})
+    dynamo.set_analysis_key(table_name, "job1", "loudness", "src1", "work/job1/loudness/src1.json")
+    dynamo.set_analysis_key(table_name, "job1", "scenes", "src1", "work/job1/scenes/src1.json")
 
     job = dynamo.get_job(table_name, "job1")
     assert job.analysis_keys == {
@@ -41,8 +41,8 @@ def test_set_analysis_key_survives_regardless_of_write_order(aws_stack):
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
     table.put_item(Item={"pk": dynamo.job_pk("job2"), "status": "ANALYZING"})
 
-    dynamo.set_analysis_key(table_name, "job2", "scenes", {"src1": "work/job2/scenes/src1.json"})
-    dynamo.set_analysis_key(table_name, "job2", "loudness", {"src1": "work/job2/loudness/src1.json"})
+    dynamo.set_analysis_key(table_name, "job2", "scenes", "src1", "work/job2/scenes/src1.json")
+    dynamo.set_analysis_key(table_name, "job2", "loudness", "src1", "work/job2/loudness/src1.json")
 
     job = dynamo.get_job(table_name, "job2")
     assert job.analysis_keys == {
@@ -58,10 +58,52 @@ def test_set_analysis_key_works_when_analysis_keys_attribute_is_entirely_absent(
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
     table.put_item(Item={"pk": dynamo.job_pk("job3"), "status": "ANALYZING"})
 
-    dynamo.set_analysis_key(table_name, "job3", "audio", {"src1": "work/job3/audio/src1.flac"})
+    dynamo.set_analysis_key(table_name, "job3", "audio", "src1", "work/job3/audio/src1.flac")
 
     job = dynamo.get_job(table_name, "job3")
     assert job.analysis_keys == {"audio": {"src1": "work/job3/audio/src1.flac"}}
+
+
+def test_set_analysis_key_survives_two_sources_writing_the_same_category(aws_stack):
+    # regression: a whole-category SET would let a second source's write
+    # clobber the first source's entry in the same category (ProbeMap /
+    # AnalyzeMap concurrency, Phase 8)
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(Item={"pk": dynamo.job_pk("job4"), "status": "ANALYZING"})
+
+    dynamo.set_analysis_key(table_name, "job4", "loudness", "src1", "work/job4/loudness/src1.json")
+    dynamo.set_analysis_key(table_name, "job4", "loudness", "src2", "work/job4/loudness/src2.json")
+
+    job = dynamo.get_job(table_name, "job4")
+    assert job.analysis_keys == {
+        "loudness": {
+            "src1": "work/job4/loudness/src1.json",
+            "src2": "work/job4/loudness/src2.json",
+        }
+    }
+
+
+def test_update_source_sets_fields_on_one_source_without_touching_others(aws_stack):
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(
+        Item={
+            "pk": dynamo.job_pk("job5"),
+            "status": "ANALYZING",
+            "sources": {
+                "src1": {"key": "raw/job5/src1", "kind": "video", "size": 100, "uploaded": True},
+                "src2": {"key": "raw/job5/src2", "kind": "video", "size": 200, "uploaded": True},
+            },
+        }
+    )
+
+    dynamo.update_source(table_name, "job5", "src1", duration=12.5, width=1920, height=1080, fps=30, kind="video")
+
+    job = dynamo.get_job(table_name, "job5")
+    assert job.sources["src1"].duration == 12.5
+    assert job.sources["src1"].width == 1920
+    assert job.sources["src2"].duration is None
 
 
 def test_conditional_status_flip_absorbs_duplicate_calls(aws_stack):
