@@ -77,6 +77,9 @@ def _seed(aws_stack, job_id: str, prefs: dict | None = None) -> None:
             "status": "ANALYZING",
             "prefs": dynamo.to_decimal(prefs or {"max_duration": 12.0}),
             "analysis_keys": {"loudness": {"src1": loudness_key}},
+            "sources": {
+                "src1": {"key": "raw/job1/src1", "kind": "video", "size": 100, "uploaded": True, "duration": 20}
+            },
         }
     )
 
@@ -234,6 +237,64 @@ def test_run_plan_reaches_planning_status_before_the_loudness_download(aws_stack
     job = dynamo.get_job(aws_stack["jobs_table"], "job1")
     assert job.status == "PLANNING"
     assert job.edit_plan is None
+
+
+def _seed_multi_source(aws_stack, job_id: str) -> None:
+    # 2 video sources + 1 user-uploaded audio asset (docs/phases/phase-8.md)
+    loudness1 = s3keys.work_loudness_key(job_id, "src1")
+    loudness2 = s3keys.work_loudness_key(job_id, "src2")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.put_object(Bucket=aws_stack["work_bucket"], Key=loudness1, Body=json.dumps(LOUDNESS_ARTIFACT).encode())
+    s3.put_object(
+        Bucket=aws_stack["work_bucket"],
+        Key=loudness2,
+        Body=json.dumps({**LOUDNESS_ARTIFACT, "src_id": "src2"}).encode(),
+    )
+    boto3.resource("dynamodb", region_name="us-east-1").Table(aws_stack["jobs_table"]).put_item(
+        Item={
+            "pk": dynamo.job_pk(job_id),
+            "status": "ANALYZING",
+            "prefs": dynamo.to_decimal({"max_duration": 12.0}),
+            "analysis_keys": {"loudness": {"src1": loudness1, "src2": loudness2}},
+            "sources": {
+                "src1": {"key": "raw/job1/src1", "kind": "video", "size": 100, "uploaded": True, "duration": 20},
+                "src2": {"key": "raw/job1/src2", "kind": "video", "size": 100, "uploaded": True, "duration": 20},
+                "src3": {"key": "raw/job1/src3", "kind": "audio", "size": 100, "uploaded": True, "duration": 30},
+            },
+        }
+    )
+
+
+def test_multi_source_plan_referencing_a_second_source_and_user_music_validates(aws_stack):
+    _seed_multi_source(aws_stack, "job1")
+    plan = _llm_plan()
+    plan["clips"].append({"source": "src2", "start": 1.0, "end": 3.0, "reason": "loud moment on src2"})
+    plan["audio"] = {"music_track": "user:src3", "duck_under_speech": True}
+    planner = FakePlanner([plan])
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=planner)
+
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert job.planning["source"] == "llm"
+    assert {c["source"] for c in job.edit_plan["clips"]} == {"src1", "src2"}
+    assert job.edit_plan["audio"]["music_track"] == "user:src3"
+
+
+def test_multi_source_plan_with_an_invented_source_is_rejected_not_silently_remapped(aws_stack):
+    # ADR-2 (docs/phases/phase-8.md): with N>1 known sources, an unknown
+    # `source` id is a validation error that triggers the retry path, not
+    # the N==1 silent-remap heuristic
+    _seed_multi_source(aws_stack, "job1")
+    bad = _llm_plan()
+    bad["clips"][0]["source"] = "src9"
+    planner = FakePlanner([bad, _llm_plan("second try")])
+
+    run_plan("job1", aws_stack["jobs_table"], aws_stack["work_bucket"], planner=planner)
+
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert planner.calls == 2
+    assert job.planning["retries"] == 1
+    assert job.edit_plan["summary"] == "second try"
 
 
 def test_handler_reads_env_vars_and_delegates(aws_stack, monkeypatch):
