@@ -21,12 +21,15 @@ def _seed_cut_segments(aws_stack, job_id: str, plan_path: Path, subtitles_enable
     sources = {"src1": SAMPLE_DIR / "clip_a.mp4", "src2": SAMPLE_DIR / "clip_b.mp4"}
 
     s3 = boto3.client("s3", region_name="us-east-1")
+    cut_keys = {}
     for i, clip in enumerate(plan.clips):
         segment_plan = build_segment_plan(plan, i)
         out_path = tmp_path / f"seg_{job_id}_{i:03d}.mp4"
         command = compile_plan(segment_plan, {clip.source: sources[clip.source]}, out_path)
         run_ffmpeg(command.args)
-        s3.upload_file(str(out_path), aws_stack["work_bucket"], s3keys.work_clip_key(job_id, i))
+        key = s3keys.work_clip_key(job_id, i)
+        s3.upload_file(str(out_path), aws_stack["work_bucket"], key)
+        cut_keys[str(i)] = key
 
     table = boto3.resource("dynamodb", region_name="us-east-1").Table(aws_stack["jobs_table"])
     table.put_item(
@@ -34,6 +37,7 @@ def _seed_cut_segments(aws_stack, job_id: str, plan_path: Path, subtitles_enable
             "pk": dynamo.job_pk(job_id),
             "status": "RENDERING",
             "edit_plan": dynamo.to_decimal(plan.model_dump()),
+            "cut_keys": cut_keys,
         }
     )
     return plan

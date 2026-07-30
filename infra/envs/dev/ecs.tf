@@ -44,10 +44,12 @@ resource "aws_ecs_task_definition" "render" {
       name      = "render"
       image     = local.render_image_uri
       essential = true
+      dependsOn = [{ containerName = "xray-daemon", condition = "START" }]
       environment = [
         { name = "JOBS_TABLE", value = aws_dynamodb_table.jobs.name },
         { name = "WORK_BUCKET", value = aws_s3_bucket.this["work"].bucket },
         { name = "OUTPUT_BUCKET", value = aws_s3_bucket.this["output"].bucket },
+        { name = "AWS_XRAY_DAEMON_ADDRESS", value = "127.0.0.1:2000" },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -55,6 +57,25 @@ resource "aws_ecs_task_definition" "render" {
           "awslogs-group"         = aws_cloudwatch_log_group.render.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "render"
+        }
+      }
+    },
+    {
+      # sidecar the render container's tracing.segment() calls talk to over
+      # UDP on localhost -- same task network namespace (awsvpc), so no
+      # separate security-group rule is needed.
+      name      = "xray-daemon"
+      image     = "public.ecr.aws/xray/aws-xray-daemon:latest"
+      essential = false
+      portMappings = [
+        { containerPort = 2000, protocol = "udp" }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.render.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "xray-daemon"
         }
       }
     }

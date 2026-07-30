@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
@@ -55,16 +56,19 @@ def get_job(table_name: str, job_id: str) -> JobRecord:
         status=item["status"],
         created_at=item.get("created_at", ""),
         sources=sources,
+        user_id=item.get("user_id"),
         prefs=dict(item.get("prefs", {})),
         edit_plan=item.get("edit_plan"),
         planning=item.get("planning"),
         analysis_keys=dict(item.get("analysis_keys", {})),
+        cut_keys=dict(item.get("cut_keys", {})),
         target_profile=item.get("target_profile"),
         output_key=item.get("output_key"),
         thumbnail_key=item.get("thumbnail_key"),
         error=item.get("error"),
         notify_email=item.get("notify_email"),
         ttl=item.get("ttl"),
+        timings=dict(item.get("timings", {})),
     )
 
 
@@ -126,8 +130,100 @@ def claim_ip_slot(table_name: str, ip: str, day: str, cap: int, ttl: int) -> boo
         return False
 
 
+def user_cap_pk(user_id: str, day: str) -> str:
+    return f"USERCAP#{user_id}#{day}"
+
+
+def claim_user_slot(table_name: str, user_id: str, day: str, cap: int, ttl: int) -> bool:
+    """Same atomic-counter pattern as claim_ip_slot (docs.DESIGN.md 11), keyed
+    per authenticated user instead of per IP. A re-render claims a slot too --
+    a re-render is a render."""
+    table = _table(table_name)
+    try:
+        table.update_item(
+            Key={PK: user_cap_pk(user_id, day)},
+            UpdateExpression="SET #ttl = if_not_exists(#ttl, :ttl) ADD #n :one",
+            ConditionExpression="attribute_not_exists(#n) OR #n < :cap",
+            ExpressionAttributeNames={"#n": "count", "#ttl": "ttl"},
+            ExpressionAttributeValues={":one": 1, ":cap": cap, ":ttl": ttl},
+        )
+        return True
+    except table.meta.client.exceptions.ConditionalCheckFailedException:
+        return False
+
+
+def list_jobs_for_user(table_name: str, user_id: str, limit: int = 50) -> list[dict]:
+    resp = _table(table_name).query(
+        IndexName="GSI1",
+        KeyConditionExpression="user_id = :uid",
+        ExpressionAttributeValues={":uid": user_id},
+        ScanIndexForward=False,
+        Limit=limit,
+    )
+    return [
+        {
+            "job_id": item["pk"].removeprefix("JOB#"),
+            "status": item["status"],
+            "created_at": item.get("created_at", ""),
+        }
+        for item in to_native(resp.get("Items", []))
+    ]
+
+
+def set_cut_key(table_name: str, job_id: str, index: int, key: str) -> None:
+    # nested-leaf SET on one clip index, not update_job's blind top-level SET
+    # -- safe for concurrent CutMap batches writing different indices on the
+    # same item, same pattern as set_analysis_key above.
+    table = _table(table_name)
+    pk_key = {PK: job_pk(job_id)}
+    table.update_item(
+        Key=pk_key,
+        UpdateExpression="SET cut_keys = if_not_exists(cut_keys, :empty)",
+        ExpressionAttributeValues={":empty": {}},
+    )
+    table.update_item(
+        Key=pk_key,
+        UpdateExpression="SET cut_keys.#index = :val",
+        ExpressionAttributeNames={"#index": str(index)},
+        ExpressionAttributeValues={":val": key},
+    )
+
+
 def mark_failed(table_name: str, job_id: str, error: str) -> None:
     update_job(table_name, job_id, status="FAILED", error=error)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def start_step(table_name: str, job_id: str, step: str) -> None:
+    # if_not_exists on started_at -- ASL Retry re-invokes some steps (the
+    # semaphore wait, RenderOnDemand after a Spot reclaim), and only the
+    # first attempt's start should count toward the step's wall-clock time.
+    table = _table(table_name)
+    key = {PK: job_pk(job_id)}
+    table.update_item(
+        Key=key,
+        UpdateExpression="SET #timings = if_not_exists(#timings, :empty)",
+        ExpressionAttributeNames={"#timings": "timings"},
+        ExpressionAttributeValues={":empty": {}},
+    )
+    table.update_item(
+        Key=key,
+        UpdateExpression="SET #timings.#step = if_not_exists(#timings.#step, :val)",
+        ExpressionAttributeNames={"#timings": "timings", "#step": step},
+        ExpressionAttributeValues={":val": {"started_at": _now_iso()}},
+    )
+
+
+def finish_step(table_name: str, job_id: str, step: str) -> None:
+    _table(table_name).update_item(
+        Key={PK: job_pk(job_id)},
+        UpdateExpression="SET #timings.#step.#finished = :val",
+        ExpressionAttributeNames={"#timings": "timings", "#step": step, "#finished": "finished_at"},
+        ExpressionAttributeValues={":val": _now_iso()},
+    )
 
 
 def set_analysis_key(table_name: str, job_id: str, category: str, value: dict) -> None:

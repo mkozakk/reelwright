@@ -96,6 +96,38 @@ def test_get_job_missing_raises(aws_stack):
         dynamo.get_job(aws_stack["jobs_table"], "does-not-exist")
 
 
+def test_claim_user_slot_enforces_the_cap_per_user_per_day(aws_stack):
+    table_name = aws_stack["jobs_table"]
+    assert dynamo.claim_user_slot(table_name, "user-1", "2026-07-29", 2, 0) is True
+    assert dynamo.claim_user_slot(table_name, "user-1", "2026-07-29", 2, 0) is True
+    assert dynamo.claim_user_slot(table_name, "user-1", "2026-07-29", 2, 0) is False
+
+    # a different day, or a different user, is unaffected
+    assert dynamo.claim_user_slot(table_name, "user-1", "2026-07-30", 2, 0) is True
+    assert dynamo.claim_user_slot(table_name, "user-2", "2026-07-29", 2, 0) is True
+
+
+def test_list_jobs_for_user_is_scoped_and_newest_first(aws_stack):
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    for job_id, user_id, created_at in [
+        ("job1", "user-1", "2026-07-28T00:00:00+00:00"),
+        ("job2", "user-1", "2026-07-29T00:00:00+00:00"),
+        ("job3", "user-2", "2026-07-29T00:00:00+00:00"),
+    ]:
+        table.put_item(
+            Item={
+                "pk": dynamo.job_pk(job_id),
+                "user_id": user_id,
+                "status": "DONE",
+                "created_at": created_at,
+            }
+        )
+
+    jobs = dynamo.list_jobs_for_user(table_name, "user-1")
+    assert [j["job_id"] for j in jobs] == ["job2", "job1"]
+
+
 def test_storage_round_trips_a_file(aws_stack, tmp_path):
     bucket = aws_stack["raw_bucket"]
     local_in = tmp_path / "hello.txt"
@@ -107,3 +139,44 @@ def test_storage_round_trips_a_file(aws_stack, tmp_path):
     dest_dir = tmp_path / "download"
     downloaded = storage.download(bucket, "raw/job1/hello.txt", dest_dir)
     assert downloaded.read_text() == "hello"
+
+
+def test_start_step_then_finish_step_records_both_timestamps(aws_stack):
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "ANALYZING"})
+
+    dynamo.start_step(table_name, "job1", "probe")
+    dynamo.finish_step(table_name, "job1", "probe")
+
+    job = dynamo.get_job(table_name, "job1")
+    assert "started_at" in job.timings["probe"]
+    assert "finished_at" in job.timings["probe"]
+
+
+def test_start_step_is_idempotent_across_retries(aws_stack):
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "RENDERING"})
+
+    dynamo.start_step(table_name, "job1", "render_wait")
+    first_started_at = dynamo.get_job(table_name, "job1").timings["render_wait"]["started_at"]
+
+    dynamo.start_step(table_name, "job1", "render_wait")
+    second_started_at = dynamo.get_job(table_name, "job1").timings["render_wait"]["started_at"]
+
+    assert first_started_at == second_started_at
+
+
+def test_finish_step_requires_a_prior_start_step(aws_stack):
+    # mirrors set_analysis_key's if_not_exists idiom -- finish_step assumes
+    # start_step already created the timings map and the step's sub-map
+    table_name = aws_stack["jobs_table"]
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(table_name)
+    table.put_item(Item={"pk": dynamo.job_pk("job1"), "status": "RENDERING"})
+    dynamo.start_step(table_name, "job1", "render")
+
+    dynamo.finish_step(table_name, "job1", "render")
+
+    job = dynamo.get_job(table_name, "job1")
+    assert set(job.timings["render"]) == {"started_at", "finished_at"}

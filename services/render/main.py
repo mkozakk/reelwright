@@ -10,6 +10,8 @@ from renderer.edit_plan.models import EditPlan
 from renderer.ffmpeg_run import run_ffmpeg
 from renderer.segments import build_concat_plan, clip_output_duration
 from services.common import dynamo, s3keys, storage
+from services.common.logging import get_logger
+from services.common.tracing import segment
 
 
 @dataclass
@@ -18,6 +20,7 @@ class RenderResult:
 
 
 def run_render_job(job_id: str, jobs_table: str, work_bucket: str, output_bucket: str) -> RenderResult:
+    dynamo.start_step(jobs_table, job_id, "render")
     job = dynamo.get_job(jobs_table, job_id)
     plan = EditPlan.model_validate(job.edit_plan)
 
@@ -26,7 +29,11 @@ def run_render_job(job_id: str, jobs_table: str, work_bucket: str, output_bucket
         # built yet -- Phase 2's canned plan must ship with subtitles off.
         raise NotImplementedError("subtitle burn-in is not supported across cut segments yet")
 
-    clip_keys = storage.list_keys(work_bucket, s3keys.work_clips_prefix(job_id))
+    # cut_keys is a {str(clip_index): cache_key} map (services/cut/handler.py)
+    # -- reading it, rather than listing a job-id-prefixed path, is what lets
+    # a rerender reuse a mix of cache-hit and freshly-cut clips regardless of
+    # which job originally produced each one (docs/phases/phase-7.md).
+    clip_keys = [job.cut_keys[k] for k in sorted(job.cut_keys, key=int)]
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -46,6 +53,7 @@ def run_render_job(job_id: str, jobs_table: str, work_bucket: str, output_bucket
         storage.upload(output_bucket, key, out_path)
 
     dynamo.update_job(jobs_table, job_id, output_key=key, status="RENDERING")
+    dynamo.finish_step(jobs_table, job_id, "render")
     return RenderResult(output_key=key)
 
 
@@ -55,9 +63,14 @@ def main(job_id: str | None = None) -> int:
     work_bucket = os.environ["WORK_BUCKET"]
     output_bucket = os.environ["OUTPUT_BUCKET"]
 
+    log = get_logger(__name__, job_id)
+    log.info("render started")
     try:
-        run_render_job(job_id, jobs_table, work_bucket, output_bucket)
+        with segment(__name__, job_id):
+            run_render_job(job_id, jobs_table, work_bucket, output_bucket)
     except Exception as exc:
+        log.exception("render failed")
         dynamo.mark_failed(jobs_table, job_id, str(exc))
         return 1
+    log.info("render finished")
     return 0

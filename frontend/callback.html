@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>signing in...</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <p id="callback-status">signing in...</p>
+  </main>
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+  <script>
+    (async () => {
+      const statusEl = document.getElementById("callback-status");
+      try {
+        await Auth.handleCallback();
+        window.location.replace("index.html");
+      } catch (err) {
+        statusEl.textContent = "sign-in failed: " + err.message;
+      }
+    })();
+  </script>
+</body>
+</html>

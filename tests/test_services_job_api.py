@@ -10,9 +10,23 @@ from services.job_api import logic
 from services.job_api.handler import handler
 
 
-def _event(method, *, body=None, ip="203.0.113.1", job_id=None):
+def _event(
+    method,
+    *,
+    body=None,
+    ip="203.0.113.1",
+    job_id=None,
+    path=None,
+    sub="user-1",
+    email="user@example.com",
+):
+    if path is None:
+        path = f"/jobs/{job_id}/complete" if job_id else "/jobs"
     return {
-        "requestContext": {"http": {"method": method, "sourceIp": ip}},
+        "requestContext": {
+            "http": {"method": method, "sourceIp": ip, "path": path},
+            "authorizer": {"jwt": {"claims": {"sub": sub, "email": email}}},
+        },
         "body": None if body is None else json.dumps(body),
         "pathParameters": {"id": job_id} if job_id else None,
     }
@@ -51,13 +65,10 @@ def test_parse_body_rejects_empty_and_non_object():
 
 
 def test_validate_create_request_normalises_a_good_request():
-    out = logic.validate_create_request(
-        _valid_create(prefs={"vibe": "  upbeat  ", "aspect": "9:16"}, notify_email="a@b.co")
-    )
+    out = logic.validate_create_request(_valid_create(prefs={"vibe": "  upbeat  ", "aspect": "9:16"}))
     assert out["content_type"] == "video/mp4"
     assert out["size"] == 10 * 1024 * 1024
     assert out["prefs"] == {"vibe": "upbeat", "aspect": "9:16"}
-    assert out["notify_email"] == "a@b.co"
 
 
 def test_validate_create_request_rejects_bad_content_type():
@@ -77,13 +88,11 @@ def test_validate_create_request_rejects_unknown_pref():
         logic.validate_create_request(_valid_create(prefs={"speed": "fast"}))
 
 
-def test_validate_create_request_rejects_bad_aspect_and_duration_and_email():
+def test_validate_create_request_rejects_bad_aspect_and_duration():
     with pytest.raises(logic.ApiError):
         logic.validate_create_request(_valid_create(prefs={"aspect": "4:3"}))
     with pytest.raises(logic.ApiError):
         logic.validate_create_request(_valid_create(prefs={"max_duration": 999}))
-    with pytest.raises(logic.ApiError):
-        logic.validate_create_request(_valid_create(notify_email="nope"))
 
 
 def test_upload_plan_switches_to_multipart_above_the_threshold():
@@ -115,8 +124,12 @@ def test_validate_complete_request_rejects_bad_input():
 def test_build_job_item_shapes_the_record():
     created = logic.now()
     request = logic.validate_create_request(_valid_create(prefs={"vibe": "calm"}))
-    item = logic.build_job_item("abc", "source", "raw/abc/source", request, created)
+    item = logic.build_job_item(
+        "abc", "source", "raw/abc/source", request, created, "user-1", "user@example.com"
+    )
     assert item["pk"] == "JOB#abc"
+    assert item["user_id"] == "user-1"
+    assert item["notify_email"] == "user@example.com"
     assert item["status"] == "UPLOADING"
     assert item["created_at"] == created.isoformat()
     assert item["sources"]["source"] == {
@@ -156,6 +169,22 @@ def test_create_job_writes_record_and_returns_presigned_url(aws_stack, monkeypat
     assert job.sources["source"].uploaded is False
 
 
+def test_create_job_publishes_a_job_created_event(aws_stack, monkeypatch):
+    from services.job_api import handler as handler_mod
+
+    published = []
+    monkeypatch.setattr(handler_mod.events, "publish", lambda *a, **kw: published.append((a, kw)))
+    _set_api_env(monkeypatch, aws_stack)
+
+    resp = handler(_event("POST", body=_valid_create()))
+    job_id = json.loads(resp["body"])["job_id"]
+
+    [(args, kwargs)] = published
+    assert args[0] == "job.created"
+    assert args[1] == job_id
+    assert kwargs == {"user_id": "user-1", "status": "UPLOADING"}
+
+
 def test_create_job_uses_multipart_for_large_files(aws_stack, monkeypatch):
     _set_api_env(monkeypatch, aws_stack)
     size = logic.MULTIPART_THRESHOLD + 3 * logic.PART_SIZE
@@ -176,6 +205,14 @@ def test_complete_upload_finalises_a_multipart_object(aws_stack, monkeypatch):
     job_id = "job1"
     key = s3keys.raw_key(job_id, logic.SRC_ID)
     s3 = boto3.client("s3", region_name="us-east-1")
+    boto3.resource("dynamodb", region_name="us-east-1").Table(aws_stack["jobs_table"]).put_item(
+        Item={
+            "pk": dynamo.job_pk(job_id),
+            "user_id": "user-1",
+            "status": "UPLOADING",
+            "created_at": "2026-07-29T00:00:00+00:00",
+        }
+    )
 
     upload_id = s3.create_multipart_upload(Bucket=aws_stack["raw_bucket"], Key=key)["UploadId"]
     part = s3.upload_part(
@@ -206,13 +243,27 @@ def test_per_ip_daily_cap_returns_429(aws_stack, monkeypatch):
     _set_api_env(monkeypatch, aws_stack)
     monkeypatch.setattr(logic, "IP_DAILY_CAP", 1)
 
-    first = handler(_event("POST", body=_valid_create(), ip="198.51.100.7"))
+    first = handler(_event("POST", body=_valid_create(), ip="198.51.100.7", sub="user-a"))
     assert first["statusCode"] == 201
-    second = handler(_event("POST", body=_valid_create(), ip="198.51.100.7"))
+    second = handler(_event("POST", body=_valid_create(), ip="198.51.100.7", sub="user-b"))
     assert second["statusCode"] == 429
 
     # a different address is unaffected
-    other = handler(_event("POST", body=_valid_create(), ip="198.51.100.8"))
+    other = handler(_event("POST", body=_valid_create(), ip="198.51.100.8", sub="user-c"))
+    assert other["statusCode"] == 201
+
+
+def test_per_user_daily_cap_returns_429(aws_stack, monkeypatch):
+    _set_api_env(monkeypatch, aws_stack)
+    monkeypatch.setattr(logic, "USER_DAILY_CAP", 1)
+
+    first = handler(_event("POST", body=_valid_create(), ip="198.51.100.7", sub="user-a"))
+    assert first["statusCode"] == 201
+    second = handler(_event("POST", body=_valid_create(), ip="198.51.100.8", sub="user-a"))
+    assert second["statusCode"] == 429
+
+    # a different account, same IP subnet, is unaffected
+    other = handler(_event("POST", body=_valid_create(), ip="198.51.100.9", sub="user-b"))
     assert other["statusCode"] == 201
 
 
@@ -222,6 +273,7 @@ def test_get_job_returns_status_and_404_for_missing(aws_stack, monkeypatch):
     table.put_item(
         Item={
             "pk": dynamo.job_pk("job1"),
+            "user_id": "user-1",
             "status": "PLANNING",
             "created_at": "2026-07-29T00:00:00+00:00",
             "prefs": {"vibe": "calm"},
@@ -242,6 +294,36 @@ def test_get_job_returns_status_and_404_for_missing(aws_stack, monkeypatch):
     assert missing["statusCode"] == 404
 
 
+def test_get_job_hides_other_users_jobs_as_404(aws_stack, monkeypatch):
+    _set_api_env(monkeypatch, aws_stack)
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(aws_stack["jobs_table"])
+    table.put_item(
+        Item={
+            "pk": dynamo.job_pk("job1"),
+            "user_id": "user-a",
+            "status": "PLANNING",
+            "created_at": "2026-07-29T00:00:00+00:00",
+            "prefs": {},
+        }
+    )
+
+    resp = handler(_event("GET", job_id="job1", sub="user-b"))
+    assert resp["statusCode"] == 404
+
+
+def test_list_jobs_returns_only_the_caller_s_jobs(aws_stack, monkeypatch):
+    _set_api_env(monkeypatch, aws_stack)
+    a = handler(_event("POST", body=_valid_create(), sub="user-a"))
+    b = handler(_event("POST", body=_valid_create(), sub="user-b"))
+    a_job_id = json.loads(a["body"])["job_id"]
+
+    resp = handler(_event("GET", sub="user-a"))
+    assert resp["statusCode"] == 200
+    jobs = json.loads(resp["body"])["jobs"]
+    assert [j["job_id"] for j in jobs] == [a_job_id]
+    assert json.loads(b["body"])["job_id"] not in [j["job_id"] for j in jobs]
+
+
 def test_get_job_signs_output_urls_when_done(aws_stack, monkeypatch, requires_rsa_sha1_signing):
     _set_api_env(monkeypatch, aws_stack)
     monkeypatch.setenv("CLOUDFRONT_DOMAIN", "cdn.example.com")
@@ -252,6 +334,7 @@ def test_get_job_signs_output_urls_when_done(aws_stack, monkeypatch, requires_rs
     table.put_item(
         Item={
             "pk": dynamo.job_pk("job1"),
+            "user_id": "user-1",
             "status": "DONE",
             "created_at": "2026-07-29T00:00:00+00:00",
             "prefs": {},
