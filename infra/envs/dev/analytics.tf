@@ -1,8 +1,13 @@
 # job.created / job.planned / job.rendered / job.failed lifecycle events
 # (services/common/events.py, JobFailed's PublishJobFailedEvent state) land
-# here via EventBridge -> Firehose -> Parquet, queryable from Athena. Separate
-# bucket/lifecycle from raw/work/output (s3.tf) -- this is an audit/cost
-# trail, not a working scratch area.
+# here via EventBridge -> a small Lambda -> S3 as raw JSON, queryable from
+# Athena. Originally Firehose converted these to Parquet, but Firehose needs
+# a per-account service subscription this account doesn't have
+# (SubscriptionRequiredException) -- at portfolio event volume, one JSON
+# object per event is plenty, and Athena's OpenX JSON SerDe queries it
+# directly with no format-conversion step. Separate bucket/lifecycle from
+# raw/work/output (s3.tf) -- this is an audit/cost trail, not a working
+# scratch area.
 
 resource "aws_s3_bucket" "analytics" {
   bucket        = "${local.name_prefix}-analytics-${data.aws_caller_identity.current.account_id}"
@@ -45,7 +50,7 @@ resource "aws_glue_catalog_database" "analytics" {
   name = replace("${local.name_prefix}_analytics", "-", "_")
 }
 
-# superset schema across all four detail-types -- Parquet/Hive columns are
+# superset schema across all four detail-types -- struct columns are
 # nullable, so job.created's row just has nulls in job.planned's cost/token
 # columns, etc.
 resource "aws_glue_catalog_table" "events" {
@@ -54,16 +59,21 @@ resource "aws_glue_catalog_table" "events" {
   table_type    = "EXTERNAL_TABLE"
 
   parameters = {
-    classification = "parquet"
+    classification = "json"
   }
 
   storage_descriptor {
     location      = "s3://${aws_s3_bucket.analytics.bucket}/events/"
-    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
-    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+    input_format  = "org.apache.hadoop.mapred.TextInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
 
     ser_de_info {
-      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+      # EventBridge's own envelope field is "detail-type" (hyphenated); the
+      # mapping.* SerDe property remaps it to a valid Hive/Athena column name.
+      serialization_library = "org.openx.data.jsonserde.JsonSerDe"
+      parameters = {
+        "mapping.detail_type" = "detail-type"
+      }
     }
 
     columns {
@@ -74,9 +84,6 @@ resource "aws_glue_catalog_table" "events" {
       name = "id"
       type = "string"
     }
-    # EventBridge's own envelope field is "detail-type" (hyphenated); the
-    # Firehose deserializer's column_to_json_key_mappings below remaps it to
-    # this valid Hive/Parquet column name.
     columns {
       name = "detail_type"
       type = "string"
@@ -104,121 +111,64 @@ resource "aws_glue_catalog_table" "events" {
   }
 }
 
-data "aws_iam_policy_document" "firehose_assume" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["firehose.amazonaws.com"]
-    }
-  }
+resource "aws_iam_role" "analytics_sink" {
+  name               = "${local.name_prefix}-analytics-sink-lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
 }
 
-resource "aws_iam_role" "firehose_analytics" {
-  name               = "${local.name_prefix}-firehose-analytics"
-  assume_role_policy = data.aws_iam_policy_document.firehose_assume.json
+resource "aws_iam_role_policy_attachment" "analytics_sink_logs" {
+  role       = aws_iam_role.analytics_sink.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_cloudwatch_log_group" "firehose_analytics" {
-  name              = "/aws/kinesisfirehose/${local.name_prefix}-analytics"
-  retention_in_days = 14
+resource "aws_iam_role_policy_attachment" "analytics_sink_xray" {
+  role       = aws_iam_role.analytics_sink.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
-resource "aws_cloudwatch_log_stream" "firehose_analytics" {
-  name           = "DestinationDelivery"
-  log_group_name = aws_cloudwatch_log_group.firehose_analytics.name
-}
-
-resource "aws_iam_role_policy" "firehose_analytics" {
-  name = "firehose-analytics"
-  role = aws_iam_role.firehose_analytics.id
+resource "aws_iam_role_policy" "analytics_sink" {
+  name = "analytics-sink"
+  role = aws_iam_role.analytics_sink.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = [
-          "s3:AbortMultipartUpload",
-          "s3:GetBucketLocation",
-          "s3:GetObject",
-          "s3:ListBucket",
-          "s3:ListBucketMultipartUploads",
-          "s3:PutObject",
-        ]
-        Resource = [
-          aws_s3_bucket.analytics.arn,
-          "${aws_s3_bucket.analytics.arn}/*",
-        ]
-      },
-      {
-        # needed to read the Glue table's schema for the Parquet conversion
-        Effect = "Allow"
-        Action = ["glue:GetTable", "glue:GetTableVersion", "glue:GetTableVersions"]
-        Resource = [
-          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
-          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:database/${aws_glue_catalog_database.analytics.name}",
-          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.analytics.name}/${aws_glue_catalog_table.events.name}",
-        ]
-      },
-      {
         Effect   = "Allow"
-        Action   = ["logs:PutLogEvents"]
-        Resource = "${aws_cloudwatch_log_group.firehose_analytics.arn}:*"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.analytics.arn}/*"
       }
     ]
   })
 }
 
-resource "aws_kinesis_firehose_delivery_stream" "analytics" {
-  name        = "${local.name_prefix}-analytics"
-  destination = "extended_s3"
+# same shared container image as probe/plan/finish/job_api -- already has
+# aws-xray-sdk and the rest of [services] installed, no separate zip to build
+resource "aws_lambda_function" "analytics_sink" {
+  function_name = "${local.name_prefix}-analytics-sink"
+  role          = aws_iam_role.analytics_sink.arn
+  package_type  = "Image"
+  image_uri     = local.lambda_image_uri
+  timeout       = 15
+  memory_size   = 128
 
-  extended_s3_configuration {
-    role_arn            = aws_iam_role.firehose_analytics.arn
-    bucket_arn          = aws_s3_bucket.analytics.arn
-    prefix              = "events/"
-    error_output_prefix = "errors/!{firehose:error-output-type}/"
-    buffering_size      = 1
-    buffering_interval  = 60 # portfolio traffic -- small buffer keeps Athena results fresh for the demo
+  image_config {
+    command = ["services.analytics_sink.handler.handler"]
+  }
 
-    cloudwatch_logging_options {
-      enabled         = true
-      log_group_name  = aws_cloudwatch_log_group.firehose_analytics.name
-      log_stream_name = aws_cloudwatch_log_stream.firehose_analytics.name
-    }
+  tracing_config {
+    mode = "Active"
+  }
 
-    data_format_conversion_configuration {
-      enabled = true
-
-      input_format_configuration {
-        deserializer {
-          open_x_json_ser_de {
-            column_to_json_key_mappings = {
-              detail_type = "detail-type"
-            }
-          }
-        }
-      }
-
-      output_format_configuration {
-        serializer {
-          parquet_ser_de {}
-        }
-      }
-
-      schema_configuration {
-        database_name = aws_glue_catalog_database.analytics.name
-        table_name    = aws_glue_catalog_table.events.name
-        role_arn      = aws_iam_role.firehose_analytics.arn
-      }
+  environment {
+    variables = {
+      ANALYTICS_BUCKET = aws_s3_bucket.analytics.bucket
     }
   }
 }
 
 resource "aws_cloudwatch_event_rule" "pipeline_events" {
   name        = "${local.name_prefix}-pipeline-events"
-  description = "montage-pipeline job.* lifecycle events -> analytics Firehose"
+  description = "montage-pipeline job.* lifecycle events -> analytics sink Lambda"
 
   # must match services/common/events.py's SOURCE constant
   event_pattern = jsonencode({
@@ -226,42 +176,20 @@ resource "aws_cloudwatch_event_rule" "pipeline_events" {
   })
 }
 
-data "aws_iam_policy_document" "eventbridge_assume" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["events.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "eventbridge_firehose" {
-  name               = "${local.name_prefix}-eventbridge-firehose"
-  assume_role_policy = data.aws_iam_policy_document.eventbridge_assume.json
-}
-
-resource "aws_iam_role_policy" "eventbridge_firehose" {
-  name = "eventbridge-firehose"
-  role = aws_iam_role.eventbridge_firehose.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["firehose:PutRecord", "firehose:PutRecordBatch"]
-        Resource = aws_kinesis_firehose_delivery_stream.analytics.arn
-      }
-    ]
-  })
-}
-
-resource "aws_cloudwatch_event_target" "pipeline_events_firehose" {
+resource "aws_cloudwatch_event_target" "pipeline_events_sink" {
   rule      = aws_cloudwatch_event_rule.pipeline_events.name
-  target_id = "analytics-firehose"
-  arn       = aws_kinesis_firehose_delivery_stream.analytics.arn
-  role_arn  = aws_iam_role.eventbridge_firehose.arn
+  target_id = "analytics-sink"
+  arn       = aws_lambda_function.analytics_sink.arn
+}
+
+# same pattern as eventbridge.tf's trigger permission -- EventBridge invokes
+# via this resource-based policy, no IAM role on the target needed
+resource "aws_lambda_permission" "allow_eventbridge_analytics_sink" {
+  statement_id  = "AllowEventBridgeInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.analytics_sink.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.pipeline_events.arn
 }
 
 resource "aws_athena_workgroup" "analytics" {
