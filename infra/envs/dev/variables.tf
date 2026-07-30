@@ -88,3 +88,8 @@ variable "cognito_callback_urls" {
   type        = list(string)
   default     = ["http://localhost:8000/callback.html"]
 }
+
+variable "ses_from_email" {
+  description = "Verified SES sender for job-completion notifications (docs/phases/phase-7.md) -- requires clicking the verification link SES sends after apply, see README"
+  type        = string
+}

@@ -84,6 +84,7 @@ def _presign_upload(key: str, request: dict) -> dict:
 def _create_job(event: dict) -> dict:
     jobs_table = os.environ["JOBS_TABLE"]
     user_id = logic.user_id_from_claims(event)
+    email = logic.claims(event).get("email")
     request = logic.validate_create_request(logic.parse_body(event.get("body")))
 
     created = logic.now()
@@ -99,7 +100,8 @@ def _create_job(event: dict) -> dict:
     with segment(__name__, job_id):
         key = s3keys.raw_key(job_id, logic.SRC_ID)
         dynamo.put_new_job(
-            jobs_table, logic.build_job_item(job_id, logic.SRC_ID, key, request, created, user_id)
+            jobs_table,
+            logic.build_job_item(job_id, logic.SRC_ID, key, request, created, user_id, email),
         )
         events.publish("job.created", job_id, user_id=user_id, status="UPLOADING")
         get_logger(__name__, job_id).info("job created")

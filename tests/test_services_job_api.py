@@ -65,13 +65,10 @@ def test_parse_body_rejects_empty_and_non_object():
 
 
 def test_validate_create_request_normalises_a_good_request():
-    out = logic.validate_create_request(
-        _valid_create(prefs={"vibe": "  upbeat  ", "aspect": "9:16"}, notify_email="a@b.co")
-    )
+    out = logic.validate_create_request(_valid_create(prefs={"vibe": "  upbeat  ", "aspect": "9:16"}))
     assert out["content_type"] == "video/mp4"
     assert out["size"] == 10 * 1024 * 1024
     assert out["prefs"] == {"vibe": "upbeat", "aspect": "9:16"}
-    assert out["notify_email"] == "a@b.co"
 
 
 def test_validate_create_request_rejects_bad_content_type():
@@ -91,13 +88,11 @@ def test_validate_create_request_rejects_unknown_pref():
         logic.validate_create_request(_valid_create(prefs={"speed": "fast"}))
 
 
-def test_validate_create_request_rejects_bad_aspect_and_duration_and_email():
+def test_validate_create_request_rejects_bad_aspect_and_duration():
     with pytest.raises(logic.ApiError):
         logic.validate_create_request(_valid_create(prefs={"aspect": "4:3"}))
     with pytest.raises(logic.ApiError):
         logic.validate_create_request(_valid_create(prefs={"max_duration": 999}))
-    with pytest.raises(logic.ApiError):
-        logic.validate_create_request(_valid_create(notify_email="nope"))
 
 
 def test_upload_plan_switches_to_multipart_above_the_threshold():
@@ -129,9 +124,12 @@ def test_validate_complete_request_rejects_bad_input():
 def test_build_job_item_shapes_the_record():
     created = logic.now()
     request = logic.validate_create_request(_valid_create(prefs={"vibe": "calm"}))
-    item = logic.build_job_item("abc", "source", "raw/abc/source", request, created, "user-1")
+    item = logic.build_job_item(
+        "abc", "source", "raw/abc/source", request, created, "user-1", "user@example.com"
+    )
     assert item["pk"] == "JOB#abc"
     assert item["user_id"] == "user-1"
+    assert item["notify_email"] == "user@example.com"
     assert item["status"] == "UPLOADING"
     assert item["created_at"] == created.isoformat()
     assert item["sources"]["source"] == {
