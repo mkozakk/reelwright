@@ -18,7 +18,7 @@ ALLOWED_ASPECTS = {"16:9", "9:16", "1:1"}
 MAX_DURATION_SECONDS = 300  # output.max_duration pref cap -- unrelated to
 # session_caps.MAX_SESSION_VIDEO_SECONDS (that one bounds total *uploaded*
 # video across a session; this one bounds the requested *output* length)
-MAX_VIBE_LEN = 200
+MAX_VIBE_LEN = 400  # room for real editorial instructions, not just a mood word
 
 MULTIPART_THRESHOLD = 100 * 1024 * 1024  # above this a single PUT is worth splitting
 PART_SIZE = 16 * 1024 * 1024  # well over S3's 5 MB per-part floor (last part may be smaller)

@@ -13,6 +13,22 @@ def test_system_prompt_frames_multiple_sources_and_user_uploaded_music():
     assert "user:" in prompt.SYSTEM_PROMPT
 
 
+def test_system_prompt_treats_vibe_as_an_editorial_brief_not_just_a_mood_label():
+    text = prompt.SYSTEM_PROMPT.lower()
+    assert "editorial brief" in text
+    assert "specific source or moment" in text
+
+
+def test_system_prompt_gives_levers_for_restrained_and_energetic_requests():
+    text = prompt.SYSTEM_PROMPT.lower()
+    assert "gentle" in text and "minimal effects" in text
+    assert "punchy" in text or "energetic" in text
+
+
+def test_system_prompt_tells_the_model_not_to_invent_evidence_for_the_brief():
+    assert "closest faithful thing" in prompt.SYSTEM_PROMPT.lower()
+
+
 def test_evidence_block_with_a_multi_source_bundle_stays_under_a_sane_token_budget():
     # rough proxy (chars/4) -- a real tokenizer isn't available here, but this
     # catches gross regressions in per-source evidence size (docs/phases/
