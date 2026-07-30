@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1a1a1a;
+  --bg: #fafafa;
+  --border: #ccc;
+  --accent: #2a5adf;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8e8;
+    --bg: #1a1a1a;
+    --border: #444;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+nav {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 400px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+}
+
+button:hover {
+  background: var(--accent);
+  color: white;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.4rem;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+td input[type="number"] {
+  width: 5rem;
+}
+
+video {
+  max-width: 100%;
+}
+
+.banner {
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin: 0.5rem 0;
+}
+
+.banner.error {
+  background: #fdecea;
+  color: #9d1c1c;
+  border: 1px solid #f3b6b0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .banner.error {
+    background: #3a1616;
+    color: #ff9b93;
+    border-color: #6b2a24;
+  }
+}
+
+ul#jobs-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+ul#jobs-list button {
+  width: 100%;
+  text-align: left;
+}
