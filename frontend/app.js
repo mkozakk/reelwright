@@ -54,34 +54,67 @@
     });
   }
 
-  async function uploadSingle(created, file, onProgress) {
-    await xhrUpload(created.upload_url, created.upload_method, created.upload_headers, file, onProgress);
+  const MAX_FILES = 5;
+
+  async function uploadSingle(source, file, onProgress) {
+    await xhrUpload(source.upload_url, source.upload_method, source.upload_headers, file, onProgress);
   }
 
-  async function uploadMultipart(created, file, onProgress) {
+  async function uploadMultipart(jobId, source, file, onProgress) {
     const parts = [];
     let uploaded = 0;
-    for (const part of created.parts) {
-      const start = (part.part_number - 1) * created.part_size;
-      const chunk = file.slice(start, start + created.part_size);
+    for (const part of source.parts) {
+      const start = (part.part_number - 1) * source.part_size;
+      const chunk = file.slice(start, start + source.part_size);
       const etag = await xhrUpload(part.url, "PUT", {}, chunk, (fraction) => {
         onProgress((uploaded + fraction * chunk.size) / file.size);
       });
       uploaded += chunk.size;
       parts.push({ part_number: part.part_number, etag: etag.replace(/"/g, "") });
     }
-    await api(`/jobs/${created.job_id}/complete`, {
+    // completes server-side via POST .../complete -- CompleteMultipartUpload
+    // needs the job_api's own S3 credentials, the browser can't call it directly
+    await api(`/jobs/${jobId}/complete`, {
       method: "POST",
-      body: JSON.stringify({ upload_id: created.upload_id, parts }),
+      body: JSON.stringify({ src_id: source.src_id, upload_id: source.upload_id, parts }),
     });
+  }
+
+  async function uploadOne(jobId, source, file, onProgress) {
+    if (source.upload_type === "multipart") {
+      await uploadMultipart(jobId, source, file, onProgress);
+    } else {
+      // a single presigned PUT lands the object directly; POST /jobs/{id}/start
+      // (called once every file is up) verifies it and starts the pipeline --
+      // no per-file /complete call needed on this path
+      await uploadSingle(source, file, onProgress);
+    }
+  }
+
+  function addProgressRow(list, label) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.textContent = label;
+    const bar = document.createElement("progress");
+    bar.max = 100;
+    bar.value = 0;
+    const pct = document.createElement("span");
+    pct.textContent = "0%";
+    li.append(name, " ", bar, " ", pct);
+    list.appendChild(li);
+    return { bar, pct };
   }
 
   async function onUploadSubmit(event) {
     event.preventDefault();
     setError("upload-error", null);
 
-    const file = document.getElementById("upload-file").files[0];
-    if (!file) return;
+    const files = Array.from(document.getElementById("upload-file").files);
+    if (files.length === 0) return;
+    if (files.length > MAX_FILES) {
+      setError("upload-error", `at most ${MAX_FILES} files per session (server enforces this too)`);
+      return;
+    }
     const vibe = document.getElementById("upload-vibe").value.trim();
     const prefs = {
       aspect: document.getElementById("upload-aspect").value,
@@ -90,33 +123,38 @@
     if (vibe) prefs.vibe = vibe;
 
     const progressWrap = document.getElementById("upload-progress");
-    const progressBar = document.getElementById("upload-progress-bar");
-    const progressLabel = document.getElementById("upload-progress-label");
+    const progressList = document.getElementById("upload-progress-list");
+    progressList.textContent = "";
     progressWrap.hidden = false;
-    const onProgress = (fraction) => {
-      progressBar.value = Math.round(fraction * 100);
-      progressLabel.textContent = `${Math.round(fraction * 100)}%`;
-    };
+    const rows = files.map((file) => addProgressRow(progressList, file.name));
 
     try {
       const created = await api("/jobs", {
         method: "POST",
-        body: JSON.stringify({ content_type: file.type, size: file.size, prefs }),
+        body: JSON.stringify({
+          files: files.map((file) => ({ content_type: file.type, size: file.size })),
+          prefs,
+        }),
       });
 
-      if (created.upload_type === "multipart") {
-        // completes server-side via POST .../complete -- CompleteMultipartUpload
-        // needs the job_api's own S3 credentials, the browser can't call it directly
-        await uploadMultipart(created, file, onProgress);
-      } else {
-        // a single presigned PUT lands the object directly; S3's ObjectCreated
-        // event (services/trigger) starts the pipeline on its own, no /complete call
-        await uploadSingle(created, file, onProgress);
-      }
+      // one presigned target per declared file, in the same order -- upload
+      // every file in parallel, each with its own progress row
+      await Promise.all(
+        created.sources.map((source, i) =>
+          uploadOne(created.job_id, source, files[i], (fraction) => {
+            rows[i].bar.value = Math.round(fraction * 100);
+            rows[i].pct.textContent = `${Math.round(fraction * 100)}%`;
+          })
+        )
+      );
+
+      // verifies every upload landed and starts the pipeline exactly once --
+      // idempotent, safe even if a dev-only EventBridge trigger also fires
+      await api(`/jobs/${created.job_id}/start`, { method: "POST" });
 
       progressWrap.hidden = true;
       document.getElementById("upload-form").reset();
-      await showStatus(created.job_id);
+      await showStatus(created.job_id, created.sources);
     } catch (err) {
       progressWrap.hidden = true;
       setError("upload-error", err.message);
@@ -156,11 +194,20 @@
   let currentJobId = null;
   let currentPlan = null;
 
-  async function showStatus(jobId) {
+  async function showStatus(jobId, sources) {
     currentJobId = jobId;
     show("status-view");
     document.getElementById("status-job-id").textContent = jobId;
     setError("status-error", null);
+
+    const sourcesEl = document.getElementById("status-sources");
+    if (sources && sources.length) {
+      sourcesEl.hidden = false;
+      sourcesEl.textContent = `session: ${sources.map((s) => `${s.src_id} (${s.kind})`).join(", ")}`;
+    } else {
+      sourcesEl.hidden = true;
+    }
+
     await pollStatus();
   }
 
