@@ -7,7 +7,7 @@ from services.job_api.handler import handler
 
 SAMPLE_PLAN = {
     "version": "1",
-    "clips": [{"source": "source", "start": 0.0, "end": 2.0, "reason": "cold open"}],
+    "clips": [{"source": "src1", "start": 0.0, "end": 2.0, "reason": "cold open"}],
     "output": {"aspect": "16:9", "resolution": "1080p", "max_duration": 30},
 }
 
@@ -31,7 +31,7 @@ def _set_api_env(monkeypatch, aws_stack):
 
 
 def _valid_create(**overrides):
-    body = {"content_type": "video/mp4", "size": 10 * 1024 * 1024}
+    body = {"files": [{"content_type": "video/mp4", "size": 10 * 1024 * 1024}]}
     body.update(overrides)
     return body
 
@@ -59,6 +59,15 @@ def _seed_job(aws_stack, job_id: str, user_id: str = "user-1") -> None:
             "status": "DONE",
             "created_at": "2026-07-29T00:00:00+00:00",
             "prefs": {},
+            "sources": {
+                "src1": {
+                    "key": f"raw/{job_id}/src1",
+                    "kind": "video",
+                    "size": 100,
+                    "uploaded": True,
+                    "duration": 10,
+                }
+            },
         }
     )
 
@@ -87,6 +96,49 @@ def test_rerender_rejects_an_invalid_plan(aws_stack, monkeypatch):
         _event("POST", job_id="job1", path="/jobs/job1/rerender", body={"clips": []})
     )
     assert resp["statusCode"] == 400
+
+
+def test_rerender_rejects_a_plan_referencing_an_unknown_source(aws_stack, monkeypatch):
+    # ADR-2 (docs/phases/phase-8.md): validate_plan now enforces source
+    # bounds on the rerender path too, not just fresh plans
+    _set_rerender_env(monkeypatch, aws_stack)
+    _seed_job(aws_stack, "job1")
+
+    bad_plan = {**SAMPLE_PLAN, "clips": [{**SAMPLE_PLAN["clips"][0], "source": "src9"}]}
+    resp = handler(_event("POST", job_id="job1", path="/jobs/job1/rerender", body=bad_plan))
+    assert resp["statusCode"] == 400
+
+
+def test_rerender_applies_prefs_field_authority(aws_stack, monkeypatch):
+    # pre-existing gap closed alongside the sources= threading (Risk #4,
+    # docs/phases/phase-8.md task.md): a stored aspect pref must overwrite
+    # whatever aspect the submitted plan carries, same as a fresh plan.
+    _set_rerender_env(monkeypatch, aws_stack)
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(aws_stack["jobs_table"])
+    table.put_item(
+        Item={
+            "pk": dynamo.job_pk("job1"),
+            "user_id": "user-1",
+            "status": "DONE",
+            "created_at": "2026-07-29T00:00:00+00:00",
+            "prefs": {"aspect": "9:16"},
+            "sources": {
+                "src1": {
+                    "key": "raw/job1/src1",
+                    "kind": "video",
+                    "size": 100,
+                    "uploaded": True,
+                    "duration": 10,
+                }
+            },
+        }
+    )
+
+    resp = handler(_event("POST", job_id="job1", path="/jobs/job1/rerender", body=SAMPLE_PLAN))
+    assert resp["statusCode"] == 202
+
+    job = dynamo.get_job(aws_stack["jobs_table"], "job1")
+    assert job.edit_plan["output"]["aspect"] == "9:16"
 
 
 def test_rerender_hides_other_users_jobs_as_404(aws_stack, monkeypatch):
