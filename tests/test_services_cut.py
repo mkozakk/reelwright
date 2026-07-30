@@ -4,6 +4,8 @@ from pathlib import Path
 import boto3
 import pytest
 
+from renderer.edit_plan.models import EditPlan
+from renderer.edit_plan.validate import EditPlanValidationError, SourceBounds, validate_plan
 from services.common import cutcache, dynamo, s3keys
 from services.cut.handler import handler, run_cut
 
@@ -134,6 +136,44 @@ def test_run_cut_downloads_a_reused_source_only_once(aws_stack, monkeypatch):
     )
 
     assert calls == [s3keys.raw_key("job1", "src1")]
+
+
+@pytest.mark.media
+def test_an_unknown_source_never_reaches_cut_because_validate_plan_rejects_it_first(aws_stack):
+    # Regression for the class of bug ADR-2 closes (docs/phases/phase-8.md):
+    # job.sources[clip.source] in run_cut below still has no guard and would
+    # KeyError on an unresolvable source (proven by the second half of this
+    # test) -- but the actual boundary, validate_plan, now rejects such a
+    # plan before it can ever become job.edit_plan, so that KeyError path is
+    # provably unreachable through the normal plan -> render pipeline.
+    plan = _seed_job(aws_stack, "job1")
+    bad_plan = {**plan, "clips": [{**plan["clips"][0], "source": "src9"}]}
+    sources = {
+        "src1": SourceBounds(kind="video", duration=100.0),
+        "src2": SourceBounds(kind="video", duration=100.0),
+    }
+
+    with pytest.raises(EditPlanValidationError) as excinfo:
+        validate_plan(EditPlan.model_validate(bad_plan), sources=sources)
+    assert any("unknown source" in e for e in excinfo.value.errors)
+
+    # meanwhile, run_cut itself has no such guard -- feeding it the rejected
+    # plan directly (bypassing the boundary, which the normal flow never
+    # does) still raises the underlying KeyError this class of bug is about
+    table = boto3.resource("dynamodb", region_name="us-east-1").Table(aws_stack["jobs_table"])
+    table.update_item(
+        Key={"pk": dynamo.job_pk("job1")},
+        UpdateExpression="SET edit_plan = :p",
+        ExpressionAttributeValues={":p": dynamo.to_decimal(bad_plan)},
+    )
+    with pytest.raises(KeyError):
+        run_cut(
+            "job1",
+            [0],
+            jobs_table=aws_stack["jobs_table"],
+            raw_bucket=aws_stack["raw_bucket"],
+            work_bucket=aws_stack["work_bucket"],
+        )
 
 
 @pytest.mark.media

@@ -4,10 +4,12 @@ import hashlib
 
 
 def profile_key(aspect: str, resolution: str) -> tuple[str, str]:
-    """Phase-7 stand-in for Phase 8's target_profile (docs/phases/phase-8.md,
-    unpopulated until multi-file sessions land) -- (aspect, resolution) is
-    enough to satisfy the actual requirement: an aspect/resolution change
-    must not reuse cuts encoded to the old profile."""
+    """(aspect, resolution) is enough to satisfy the actual requirement: an
+    aspect/resolution change must not reuse cuts encoded to the old profile.
+    Phase 8's target_profile (docs/phases/phase-8.md) is informational
+    session metadata only (ADR-1) -- Cut keeps normalizing to these two
+    user-owned prefs regardless of source profile, so this key is
+    deliberately not widened to include it."""
     return (aspect, resolution)
 
 
