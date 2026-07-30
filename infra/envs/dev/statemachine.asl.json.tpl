@@ -1,5 +1,5 @@
 {
-  "Comment": "montage-pipeline: Probe -> Analyze (Parallel) -> Plan -> Cut (Map) -> Render -> Finish",
+  "Comment": "montage-pipeline: Probe (Map) -> SessionValidate -> Analyze (Parallel of Maps) -> Plan -> Cut (Map) -> Render -> Finish",
   "StartAt": "RouteMode",
   "States": {
     "RouteMode": {
@@ -13,18 +13,43 @@
           "Next": "PrepareCut"
         }
       ],
-      "Default": "Probe"
+      "Default": "ProbeMap"
     },
-    "Probe": {
+    "ProbeMap": {
+      "Type": "Map",
+      "ItemsPath": "$.source_items",
+      "MaxConcurrency": 5,
+      "ItemProcessor": {
+        "ProcessorConfig": { "Mode": "INLINE" },
+        "StartAt": "ProbeOne",
+        "States": {
+          "ProbeOne": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${probe_arn}",
+              "Payload.$": "$"
+            },
+            "ResultSelector": { "src_id.$": "$.Payload.src_id" },
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.probe_results",
+      "Next": "SessionValidate",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "JobFailed" }]
+    },
+    "SessionValidate": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${probe_arn}",
+        "FunctionName": "${session_profile_arn}",
         "Payload.$": "$"
       },
       "ResultSelector": {
         "job_id.$": "$.Payload.job_id",
-        "subtitles_enabled.$": "$.Payload.subtitles_enabled"
+        "subtitles_enabled.$": "$.Payload.subtitles_enabled",
+        "video_source_items.$": "$.Payload.video_source_items"
       },
       "ResultPath": "$",
       "Next": "AnalyzeParallel",
@@ -43,17 +68,29 @@
                 {
                   "Variable": "$.subtitles_enabled",
                   "BooleanEquals": true,
-                  "Next": "Transcribe"
+                  "Next": "TranscribeMap"
                 }
               ],
               "Default": "SkipTranscribe"
             },
-            "Transcribe": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Parameters": {
-                "FunctionName": "${analyze_transcribe_arn}",
-                "Payload.$": "$"
+            "TranscribeMap": {
+              "Type": "Map",
+              "ItemsPath": "$.video_source_items",
+              "MaxConcurrency": 5,
+              "ItemProcessor": {
+                "ProcessorConfig": { "Mode": "INLINE" },
+                "StartAt": "Transcribe",
+                "States": {
+                  "Transcribe": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${analyze_transcribe_arn}",
+                      "Payload.$": "$"
+                    },
+                    "End": true
+                  }
+                }
               },
               "End": true
             },
@@ -65,28 +102,52 @@
           }
         },
         {
-          "StartAt": "Loudness",
+          "StartAt": "LoudnessMap",
           "States": {
-            "Loudness": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Parameters": {
-                "FunctionName": "${analyze_loudness_arn}",
-                "Payload.$": "$"
+            "LoudnessMap": {
+              "Type": "Map",
+              "ItemsPath": "$.video_source_items",
+              "MaxConcurrency": 5,
+              "ItemProcessor": {
+                "ProcessorConfig": { "Mode": "INLINE" },
+                "StartAt": "Loudness",
+                "States": {
+                  "Loudness": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${analyze_loudness_arn}",
+                      "Payload.$": "$"
+                    },
+                    "End": true
+                  }
+                }
               },
               "End": true
             }
           }
         },
         {
-          "StartAt": "Scenes",
+          "StartAt": "ScenesMap",
           "States": {
-            "Scenes": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Parameters": {
-                "FunctionName": "${analyze_scenes_arn}",
-                "Payload.$": "$"
+            "ScenesMap": {
+              "Type": "Map",
+              "ItemsPath": "$.video_source_items",
+              "MaxConcurrency": 5,
+              "ItemProcessor": {
+                "ProcessorConfig": { "Mode": "INLINE" },
+                "StartAt": "Scenes",
+                "States": {
+                  "Scenes": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${analyze_scenes_arn}",
+                      "Payload.$": "$"
+                    },
+                    "End": true
+                  }
+                }
               },
               "End": true
             }

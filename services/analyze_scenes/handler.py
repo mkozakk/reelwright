@@ -11,10 +11,10 @@ from services.common.logging import log_job
 from services.common.tracing import segment
 
 
-def run_analyze_scenes(job_id: str, jobs_table: str, raw_bucket: str, work_bucket: str) -> None:
+def run_analyze_scenes(job_id: str, src_id: str, jobs_table: str, raw_bucket: str, work_bucket: str) -> None:
     dynamo.start_step(jobs_table, job_id, "scenes")
     job = dynamo.get_job(jobs_table, job_id)
-    src_id, source = next(iter(job.sources.items()))  # single source in Phase 3
+    source = job.sources[src_id]
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -34,17 +34,19 @@ def run_analyze_scenes(job_id: str, jobs_table: str, raw_bucket: str, work_bucke
         scenes_key = s3keys.work_scenes_key(job_id, src_id)
         storage.upload(work_bucket, scenes_key, out_path)
 
-    dynamo.set_analysis_key(jobs_table, job_id, "scenes", {src_id: scenes_key})
+    dynamo.set_analysis_key(jobs_table, job_id, "scenes", src_id, scenes_key)
     dynamo.finish_step(jobs_table, job_id, "scenes")
 
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
+    src_id = event["src_id"]
     with log_job(__name__, job_id), segment(__name__, job_id):
         run_analyze_scenes(
             job_id,
+            src_id,
             jobs_table=os.environ["JOBS_TABLE"],
             raw_bucket=os.environ["RAW_BUCKET"],
             work_bucket=os.environ["WORK_BUCKET"],
         )
-    return {"job_id": job_id}
+    return {"job_id": job_id, "src_id": src_id}

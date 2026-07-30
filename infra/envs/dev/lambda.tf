@@ -2,8 +2,9 @@
 # runtime), no ffmpeg -- a container image would be pure overhead here.
 # Built by scripts/build_lambda_zips.sh before `terraform apply`.
 locals {
-  trigger_zip   = "${path.module}/build/trigger.zip"
-  semaphore_zip = "${path.module}/build/semaphore.zip"
+  trigger_zip         = "${path.module}/build/trigger.zip"
+  semaphore_zip       = "${path.module}/build/semaphore.zip"
+  session_profile_zip = "${path.module}/build/session_profile.zip"
 }
 
 resource "aws_lambda_function" "trigger" {
@@ -115,6 +116,30 @@ resource "aws_lambda_function" "probe" {
       JOBS_TABLE  = aws_dynamodb_table.jobs.name
       RAW_BUCKET  = aws_s3_bucket.this["raw"].bucket
       WORK_BUCKET = aws_s3_bucket.this["work"].bucket
+    }
+  }
+}
+
+# boto3-only, no ffmpeg -- same posture as trigger/semaphore. Post-ProbeMap
+# aggregation: re-checks the session video-duration cap, computes
+# target_profile, fans out video-only source_items to Analyze.
+resource "aws_lambda_function" "session_profile" {
+  function_name    = "${local.name_prefix}-session-profile"
+  role             = aws_iam_role.session_profile.arn
+  runtime          = "python3.12"
+  handler          = "services.session_profile.handler.handler"
+  filename         = local.session_profile_zip
+  source_code_hash = filebase64sha256(local.session_profile_zip)
+  timeout          = 10
+  memory_size      = 128
+
+  tracing_config {
+    mode = "Active"
+  }
+
+  environment {
+    variables = {
+      JOBS_TABLE = aws_dynamodb_table.jobs.name
     }
   }
 }

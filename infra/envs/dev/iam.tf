@@ -165,6 +165,36 @@ resource "aws_iam_role_policy" "cut" {
   })
 }
 
+resource "aws_iam_role" "session_profile" {
+  name               = "${local.name_prefix}-session-profile-lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "session_profile_logs" {
+  role       = aws_iam_role.session_profile.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "session_profile_xray" {
+  role       = aws_iam_role.session_profile.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
+resource "aws_iam_role_policy" "session_profile" {
+  name = "session-profile"
+  role = aws_iam_role.session_profile.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+        Resource = aws_dynamodb_table.jobs.arn
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "analyze_loudness" {
   name               = "${local.name_prefix}-analyze-loudness-lambda"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
@@ -539,6 +569,7 @@ resource "aws_iam_role_policy" "sfn" {
         Action = ["lambda:InvokeFunction"]
         Resource = [
           aws_lambda_function.probe.arn,
+          aws_lambda_function.session_profile.arn,
           aws_lambda_function.analyze_loudness.arn,
           aws_lambda_function.analyze_scenes.arn,
           aws_lambda_function.analyze_transcribe.arn,
