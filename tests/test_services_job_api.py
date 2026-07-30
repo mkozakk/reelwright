@@ -78,6 +78,21 @@ def test_validate_create_request_normalises_a_good_request():
     assert out["prefs"] == {"vibe": "upbeat", "aspect": "9:16"}
 
 
+def test_validate_create_request_accepts_a_real_editorial_brief_up_to_the_cap():
+    brief = (
+        "open on the first scene from video 1, use the audio I uploaded as "
+        "music, keep it gentle with minimal effects"
+    )
+    assert len(brief) <= logic.MAX_VIBE_LEN
+    out = logic.validate_create_request(_valid_create(prefs={"vibe": brief}))
+    assert out["prefs"]["vibe"] == brief
+
+
+def test_validate_create_request_rejects_a_vibe_over_the_cap():
+    with pytest.raises(logic.ApiError):
+        logic.validate_create_request(_valid_create(prefs={"vibe": "x" * (logic.MAX_VIBE_LEN + 1)}))
+
+
 def test_validate_create_request_accepts_mixed_video_and_audio_files():
     out = logic.validate_create_request(
         _valid_create(
