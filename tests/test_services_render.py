@@ -15,9 +15,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_DIR = REPO_ROOT / "assets" / "sample"
 
 
-def _seed_cut_segments(aws_stack, job_id: str, plan_path: Path, subtitles_enabled: bool, tmp_path: Path):
+def _seed_cut_segments(
+    aws_stack, job_id: str, plan_path: Path, subtitles_enabled: bool, tmp_path: Path, music_track: str | None = None
+):
     plan = load_plan(plan_path)
     plan.subtitles.enabled = subtitles_enabled
+    if music_track is not None:
+        plan.audio.music_track = music_track
     sources = {"src1": SAMPLE_DIR / "clip_a.mp4", "src2": SAMPLE_DIR / "clip_b.mp4"}
 
     s3 = boto3.client("s3", region_name="us-east-1")
@@ -67,6 +71,40 @@ def test_run_render_job_concatenates_cut_segments_into_a_montage(aws_stack, tmp_
     expected = sum(durations) - plan.clips[0].transition_out.duration
     probed = probe_file(local_out)
     assert probed.duration == pytest.approx(expected, abs=0.3)
+
+
+@pytest.mark.media
+def test_run_render_job_resolves_user_uploaded_music_track(aws_stack, tmp_path, monkeypatch):
+    # docs/phases/phase-8.md: audio.music_track "user:<src_id>" resolves to a
+    # job-scoped work-bucket asset, not the bundled manifest
+    _seed_cut_segments(aws_stack, "job1", SAMPLE_DIR / "plan_basic.json", False, tmp_path, music_track="user:src9")
+
+    asset_key = s3keys.work_asset_key("job1", "src9")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.upload_file(str(SAMPLE_DIR / "music_a.mp3"), aws_stack["work_bucket"], asset_key)
+
+    import services.render.main as render_main
+
+    downloaded: list[tuple[str, str]] = []
+    original_download = render_main.storage.download
+
+    def recording_download(bucket, key, dest_dir):
+        downloaded.append((bucket, key))
+        return original_download(bucket, key, dest_dir)
+
+    monkeypatch.setattr(render_main.storage, "download", recording_download)
+
+    result = run_render_job(
+        "job1",
+        jobs_table=aws_stack["jobs_table"],
+        work_bucket=aws_stack["work_bucket"],
+        output_bucket=aws_stack["output_bucket"],
+    )
+
+    assert (aws_stack["work_bucket"], asset_key) in downloaded
+    local_out = tmp_path / "downloaded_music.mp4"
+    s3.download_file(aws_stack["output_bucket"], result.output_key, str(local_out))
+    assert local_out.stat().st_size > 0
 
 
 @pytest.mark.media

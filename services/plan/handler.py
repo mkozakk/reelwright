@@ -13,6 +13,7 @@ from renderer.edit_plan.validate import (
     DURATION_EPSILON,
     MIN_CLIP_SECONDS,
     EditPlanValidationError,
+    SourceBounds,
     validate_plan,
 )
 from renderer.presets import music as music_presets
@@ -47,22 +48,34 @@ def run_plan(
     log = get_logger(__name__, job_id)
 
     job = dynamo.get_job(jobs_table, job_id)
-    src_id = _single_source(job.analysis_keys)
-    known_sources = list(job.sources) or [src_id]
+    # only sources Analyze actually touched -- audio-only assets never enter
+    # Analyze (docs/phases/phase-8.md), so analysis_keys is the source of
+    # truth for "which sources have editorial evidence", not job.sources
+    video_sources = sorted(job.analysis_keys.get("loudness", {}))
+    audio_assets = {sid: s for sid, s in job.sources.items() if s.kind == "audio"}
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
-        loudness = _load(job.analysis_keys, "loudness", src_id, work_bucket, tmp_dir)
-        scenes = _load(job.analysis_keys, "scenes", src_id, work_bucket, tmp_dir)
-        transcript = _load(job.analysis_keys, "transcript", src_id, work_bucket, tmp_dir)
+        per_source = {
+            sid: {
+                "loudness": _load(job.analysis_keys, "loudness", sid, work_bucket, tmp_dir),
+                "scenes": _load(job.analysis_keys, "scenes", sid, work_bucket, tmp_dir),
+                "transcript": _load(job.analysis_keys, "transcript", sid, work_bucket, tmp_dir),
+            }
+            for sid in video_sources
+        }
 
     manifest = music_presets.load_manifest()
     music_catalog = [{"id": key, "mood": entry.get("mood", "")} for key, entry in manifest.items()]
+    music_catalog += [{"id": f"user:{sid}", "mood": "user-uploaded"} for sid in audio_assets]
 
-    evidence = evidence_mod.build_evidence(
-        loudness, scenes, transcript, source_ids=known_sources, music_tracks=music_catalog
-    )
+    evidence = evidence_mod.build_evidence(per_source, music_catalog)
     prompt_prefs = evidence_mod.prefs_for_prompt(job.prefs)
+
+    sources_for_validation = {
+        sid: SourceBounds(kind=s.kind, duration=s.duration or 0.0) for sid, s in job.sources.items()
+    }
+    valid_tracks = set(manifest) | {f"user:{sid}" for sid in audio_assets}
 
     planner = planner or BedrockPlanner(
         model_id,
@@ -72,12 +85,21 @@ def run_plan(
         guardrail_version=guardrail_version,
     )
     plan, meta = _plan_with_llm(
-        planner, evidence, prompt_prefs, job.prefs, known_sources, set(manifest), log
+        planner, evidence, prompt_prefs, job.prefs, video_sources, valid_tracks, sources_for_validation, log
     )
 
     if plan is None:
-        raw = fallback_planner.build_plan(src_id, (loudness or {}).get("points", []), job.prefs)
-        plan = validate_plan(EditPlan.model_validate(raw), job.prefs)
+        raw = fallback_planner.build_plan(
+            {
+                sid: {
+                    "points": (per_source[sid]["loudness"] or {}).get("points", []),
+                    "duration": job.sources[sid].duration or 0.0,
+                }
+                for sid in video_sources
+            },
+            job.prefs,
+        )
+        plan = validate_plan(EditPlan.model_validate(raw), job.prefs, sources=sources_for_validation)
         meta["source"] = "fallback"
 
     # subtitle burn-in across cut/concat segments isn't built yet -- the
@@ -111,6 +133,7 @@ def _plan_with_llm(
     prefs: dict,
     known_sources: list[str],
     valid_tracks: set[str],
+    sources_for_validation: dict[str, SourceBounds],
     log,
 ) -> tuple[EditPlan | None, dict]:
     meta = {
@@ -135,7 +158,7 @@ def _plan_with_llm(
         raw = _remap_unknown_sources(raw, known_sources, log)
         raw = _drop_unknown_music(raw, valid_tracks, log)
         raw = _drop_micro_clips(raw, log)
-        plan, errors = _try_validate(raw, prefs)
+        plan, errors = _try_validate(raw, prefs, sources_for_validation)
         if plan is not None:
             return plan, meta
         # structural/schema error strings only -- never plan content, which can
@@ -152,7 +175,8 @@ def _remap_unknown_sources(raw: dict | None, known_sources: list[str], log) -> d
     # The model sometimes invents a `source` name (e.g. "source_clip") that the
     # renderer can't resolve, crashing the Cut step. With a single source there
     # is no ambiguity -- any reference can only mean that one, so remap it.
-    # Multi-source (v1.2) is not v1.0 scope; there a bad source stays invalid.
+    # Multi-source (v1.2) is not v1.0 scope; there a bad source stays invalid
+    # and is caught by validate_plan's cross-file checks instead (ADR-2).
     if raw is None or not isinstance(raw.get("clips"), list) or len(known_sources) != 1:
         return raw
     sole = known_sources[0]
@@ -171,8 +195,9 @@ def _remap_unknown_sources(raw: dict | None, known_sources: list[str], log) -> d
 
 def _drop_unknown_music(raw: dict | None, valid_tracks: set[str], log) -> dict | None:
     # music_track is a free string the renderer resolves against the bundled
-    # manifest -- an invented id (e.g. "upbeat-01") raises there and fails the
-    # render. Drop an unknown track to no-music rather than crash.
+    # manifest (or a job-scoped "user:<src_id>" asset) -- an invented id
+    # (e.g. "upbeat-01") raises there and fails the render. Drop an unknown
+    # track to no-music rather than crash.
     if raw is None or not isinstance(raw.get("audio"), dict):
         return raw
     track = raw["audio"].get("music_track")
@@ -204,7 +229,9 @@ def _is_micro_clip(clip: dict) -> bool:
         return False  # malformed shape -- let the validator reject it
 
 
-def _try_validate(raw: dict | None, prefs: dict) -> tuple[EditPlan | None, list[str]]:
+def _try_validate(
+    raw: dict | None, prefs: dict, sources: dict[str, SourceBounds]
+) -> tuple[EditPlan | None, list[str]]:
     if raw is None:
         return None, ["model returned no tool output"]
     try:
@@ -212,7 +239,7 @@ def _try_validate(raw: dict | None, prefs: dict) -> tuple[EditPlan | None, list[
     except ValidationError as exc:
         return None, [f"{e['loc']}: {e['msg']}" for e in exc.errors()]
     try:
-        return validate_plan(plan, prefs), []
+        return validate_plan(plan, prefs, sources=sources), []
     except EditPlanValidationError as exc:
         return None, exc.errors
 
@@ -223,11 +250,6 @@ def _cost(meta: dict) -> float:
         if key in meta["model"].replace("_", "-").lower():
             price_in, price_out = price
     return round(meta["input_tokens"] / 1e6 * price_in + meta["output_tokens"] / 1e6 * price_out, 6)
-
-
-def _single_source(analysis_keys: dict) -> str:
-    # single source in v1.0; multi-source (v1.2) merges evidence across sources
-    return next(iter(analysis_keys["loudness"]))
 
 
 def _load(analysis_keys: dict, category: str, src_id: str, work_bucket: str, tmp_dir: Path) -> dict | None:

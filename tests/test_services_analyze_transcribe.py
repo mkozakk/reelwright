@@ -69,6 +69,7 @@ def test_run_analyze_transcribe_filters_hallucinations_and_flattens_words(aws_st
 
     run_analyze_transcribe(
         job_id,
+        "src1",
         jobs_table=aws_stack["jobs_table"],
         work_bucket=aws_stack["work_bucket"],
         model_dir="/opt/whisper-model",
@@ -104,6 +105,7 @@ def test_run_analyze_transcribe_never_persists_hallucinated_segment_text(aws_sta
 
     run_analyze_transcribe(
         job_id,
+        "src1",
         jobs_table=aws_stack["jobs_table"],
         work_bucket=aws_stack["work_bucket"],
         model_dir="/opt/whisper-model",
@@ -132,7 +134,7 @@ def test_handler_reads_env_vars_and_delegates_to_run_analyze_transcribe(aws_stac
     monkeypatch.setenv("WORK_BUCKET", aws_stack["work_bucket"])
     monkeypatch.setenv("MODEL_DIR", "/opt/whisper-model")
 
-    assert handler({"job_id": job_id}) == {"job_id": job_id}
+    assert handler({"job_id": job_id, "src_id": "src1"}) == {"job_id": job_id, "src_id": "src1"}
     job = dynamo.get_job(aws_stack["jobs_table"], job_id)
     assert job.analysis_keys["transcript"]["src1"] == s3keys.work_transcript_key(job_id, "src1")
 
@@ -167,6 +169,7 @@ def test_run_analyze_transcribe_real_whisper_model_round_trip(aws_stack):
     )
     run_probe(
         job_id,
+        "src1",
         jobs_table=aws_stack["jobs_table"],
         raw_bucket=aws_stack["raw_bucket"],
         work_bucket=aws_stack["work_bucket"],
@@ -174,6 +177,7 @@ def test_run_analyze_transcribe_real_whisper_model_round_trip(aws_stack):
 
     run_analyze_transcribe(
         job_id,
+        "src1",
         jobs_table=aws_stack["jobs_table"],
         work_bucket=aws_stack["work_bucket"],
         model_dir=model_dir,

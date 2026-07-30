@@ -225,19 +225,51 @@ def finish_step(table_name: str, job_id: str, step: str) -> None:
     )
 
 
-def set_analysis_key(table_name: str, job_id: str, category: str, value: dict) -> None:
-    # Nested SET on one leaf, not update_job's blind top-level SET -- safe for
-    # concurrent Analyze branches writing different categories on the same item.
+def set_analysis_key(table_name: str, job_id: str, category: str, src_id: str, key: str) -> None:
+    # Nested SET on one (category, src_id) leaf, not update_job's blind
+    # top-level SET or a whole-category overwrite -- safe for concurrent
+    # per-source Map iterations writing different categories/sources on the
+    # same item (a whole-category overwrite would let two sources racing on
+    # the same category clobber each other's entries).
     table = _table(table_name)
-    key = {PK: job_pk(job_id)}
+    pk_key = {PK: job_pk(job_id)}
     table.update_item(
-        Key=key,
+        Key=pk_key,
         UpdateExpression="SET analysis_keys = if_not_exists(analysis_keys, :empty)",
         ExpressionAttributeValues={":empty": {}},
     )
     table.update_item(
-        Key=key,
-        UpdateExpression="SET analysis_keys.#category = :val",
+        Key=pk_key,
+        UpdateExpression="SET analysis_keys.#category = if_not_exists(analysis_keys.#category, :empty)",
         ExpressionAttributeNames={"#category": category},
-        ExpressionAttributeValues={":val": to_decimal(value)},
+        ExpressionAttributeValues={":empty": {}},
+    )
+    table.update_item(
+        Key=pk_key,
+        UpdateExpression="SET analysis_keys.#category.#src = :val",
+        ExpressionAttributeNames={"#category": category, "#src": src_id},
+        ExpressionAttributeValues={":val": to_decimal(key)},
+    )
+
+
+def update_source(table_name: str, job_id: str, src_id: str, **fields) -> None:
+    # nested-leaf SET on sources.<src_id>'s sub-attributes -- safe for
+    # concurrent ProbeMap iterations on different src_id keys. Assumes
+    # sources.<src_id> already exists (job_api pre-populates all declared
+    # sources at job creation), so no if_not_exists init needed here.
+    if not fields:
+        return
+    table = _table(table_name)
+    expr_names = {"#sources": "sources", "#src": src_id}
+    expr_values = {}
+    sets = []
+    for k, v in fields.items():
+        expr_names[f"#{k}"] = k
+        expr_values[f":{k}"] = to_decimal(v)
+        sets.append(f"#sources.#src.#{k} = :{k}")
+    table.update_item(
+        Key={PK: job_pk(job_id)},
+        UpdateExpression="SET " + ", ".join(sets),
+        ExpressionAttributeNames=expr_names,
+        ExpressionAttributeValues=expr_values,
     )

@@ -129,7 +129,9 @@ def test_run_finish_rejects_zero_duration_output(aws_stack, tmp_path, monkeypatc
     def fake_probe_file(path):
         from renderer.probe import ProbeResult
 
-        return ProbeResult(duration=0.0, width=0, height=0, fps=0.0, video_codec="h264", audio_codec=None)
+        return ProbeResult(
+            kind="video", duration=0.0, width=0, height=0, fps=0.0, video_codec="h264", audio_codec=None
+        )
 
     monkeypatch.setattr(finish_handler, "probe_file", fake_probe_file)
 

@@ -9,11 +9,21 @@ from services.plan.fallback_planner import CLIP_HALF_WINDOW_SECONDS, build_plan
 SRC_ID = "src1"
 
 
+def _sources(points: list[dict], duration: float | None = None) -> dict:
+    # mirrors the old internal approximation (max(t) + 1s sampling interval)
+    # so single-source boundary assertions carry over unchanged; real callers
+    # (services/plan/handler.py) pass the source's actual Probe-measured
+    # duration instead (docs/phases/phase-8.md).
+    if duration is None:
+        duration = (max(p["t"] for p in points) + 1.0) if points else 0.0
+    return {SRC_ID: {"points": points, "duration": duration}}
+
+
 # --- empty curve (Implementation Details' defensive fallback) ---------------
 
 
 def test_build_plan_empty_curve_emits_a_single_six_second_clip_by_default():
-    plan = build_plan(SRC_ID, [], {"max_duration": 30.0})
+    plan = build_plan(_sources([]), {"max_duration": 30.0})
     assert len(plan["clips"]) == 1
     clip = plan["clips"][0]
     assert clip["source"] == SRC_ID
@@ -22,26 +32,26 @@ def test_build_plan_empty_curve_emits_a_single_six_second_clip_by_default():
 
 
 def test_build_plan_empty_curve_respects_a_max_duration_below_six_seconds():
-    plan = build_plan(SRC_ID, [], {"max_duration": 3.0})
+    plan = build_plan(_sources([]), {"max_duration": 3.0})
     clip = plan["clips"][0]
     assert clip["start"] == 0.0
     assert clip["end"] == 3.0
 
 
 def test_build_plan_empty_curve_clamps_up_to_min_clip_seconds():
-    plan = build_plan(SRC_ID, [], {"max_duration": 0.1})
+    plan = build_plan(_sources([]), {"max_duration": 0.1})
     clip = plan["clips"][0]
     assert clip["end"] - clip["start"] == pytest.approx(MIN_CLIP_SECONDS)
 
 
 def test_build_plan_empty_curve_defaults_max_duration_to_sixty_when_prefs_missing():
-    plan = build_plan(SRC_ID, [], {})
+    plan = build_plan(_sources([]), {})
     clip = plan["clips"][0]
     assert clip["end"] == 6.0
 
 
 def test_build_plan_never_raises_on_an_empty_curve():
-    build_plan(SRC_ID, [], {})  # must not raise
+    build_plan(_sources([]), {})  # must not raise
 
 
 # --- boundary clamping (single peak near t=0 or near source_duration) -------
@@ -49,7 +59,7 @@ def test_build_plan_never_raises_on_an_empty_curve():
 
 def test_build_plan_single_peak_near_source_start_clamps_left_edge_to_zero():
     points = [{"t": 0.2, "level_db": -5.0}]
-    plan = build_plan(SRC_ID, points, {})
+    plan = build_plan(_sources(points), {})
     assert len(plan["clips"]) == 1
     clip = plan["clips"][0]
     assert clip["start"] == 0.0
@@ -58,7 +68,7 @@ def test_build_plan_single_peak_near_source_start_clamps_left_edge_to_zero():
 
 def test_build_plan_single_peak_clamps_right_edge_to_approximated_source_duration():
     points = [{"t": 9.0, "level_db": -5.0}]
-    plan = build_plan(SRC_ID, points, {})
+    plan = build_plan(_sources(points), {})
     clip = plan["clips"][0]
     # source_duration ~= max(t) + ~1s sampling interval, strictly less than
     # an unclamped t +/- 3s window -- the right edge must clamp.
@@ -74,7 +84,7 @@ def test_build_plan_skips_a_lower_ranked_overlapping_peak_rather_than_shrinking_
         {"t": 11.0, "level_db": -2.0},  # window [8, 14] overlaps -> must be skipped, not shrunk
         {"t": 30.0, "level_db": -3.0},  # window [27, 31] (clamped) -> no overlap, selected
     ]
-    plan = build_plan(SRC_ID, points, {"max_duration": 18.0})
+    plan = build_plan(_sources(points), {"max_duration": 18.0})
     clips = plan["clips"]
     assert len(clips) == 2
     starts_ends = [(c["start"], c["end"]) for c in clips]
@@ -83,7 +93,7 @@ def test_build_plan_skips_a_lower_ranked_overlapping_peak_rather_than_shrinking_
 
 def test_build_plan_never_pads_with_duplicate_clips_when_fewer_peaks_than_target_count():
     points = [{"t": 5.0, "level_db": -1.0}]
-    plan = build_plan(SRC_ID, points, {"max_duration": 30.0})  # target n would be 5
+    plan = build_plan(_sources(points), {"max_duration": 30.0})  # target n would be 5
     assert len(plan["clips"]) == 1
 
 
@@ -93,9 +103,31 @@ def test_build_plan_sorts_selected_clips_chronologically_independent_of_loudness
         {"t": 5.0, "level_db": -2.0},
         {"t": 40.0, "level_db": -3.0},  # quietest, latest in time
     ]
-    plan = build_plan(SRC_ID, points, {"max_duration": 30.0})
+    plan = build_plan(_sources(points), {"max_duration": 30.0})
     starts = [c["start"] for c in plan["clips"]]
     assert starts == sorted(starts)
+
+
+def test_build_plan_ranks_peaks_globally_across_sources_and_clamps_per_source_duration():
+    sources = {
+        "src1": {"points": [{"t": 1.0, "level_db": -1.0}], "duration": 5.0},  # loudest
+        "src2": {"points": [{"t": 1.0, "level_db": -2.0}], "duration": 5.0},
+    }
+    plan = build_plan(sources, {"max_duration": 30.0})
+    clips = {c["source"]: c for c in plan["clips"]}
+    assert set(clips) == {"src1", "src2"}
+    assert "loudness peak -1.0" in clips["src1"]["reason"]
+    assert "loudness peak -2.0" in clips["src2"]["reason"]
+
+
+def test_build_plan_overlap_check_is_scoped_per_source():
+    # two windows on different sources at the same timestamp never "overlap"
+    sources = {
+        "src1": {"points": [{"t": 5.0, "level_db": -1.0}], "duration": 10.0},
+        "src2": {"points": [{"t": 5.0, "level_db": -2.0}], "duration": 10.0},
+    }
+    plan = build_plan(sources, {"max_duration": 30.0})
+    assert len(plan["clips"]) == 2
 
 
 # --- output contract shape ---------------------------------------------------
@@ -103,24 +135,24 @@ def test_build_plan_sorts_selected_clips_chronologically_independent_of_loudness
 
 def test_build_plan_never_enables_subtitles_regardless_of_prefs():
     # render/main.py can't burn subtitles in across cut segments yet
-    plan = build_plan(SRC_ID, [{"t": 1.0, "level_db": -5.0}], {"subtitles_enabled": True})
+    plan = build_plan(_sources([{"t": 1.0, "level_db": -5.0}]), {"subtitles_enabled": True})
     assert plan["subtitles"]["enabled"] is False
 
 
 def test_build_plan_clip_reason_string_matches_the_documented_format():
-    plan = build_plan(SRC_ID, [{"t": 5.0, "level_db": -12.34}], {})
+    plan = build_plan(_sources([{"t": 5.0, "level_db": -12.34}]), {})
     assert plan["clips"][0]["reason"] == "loudness peak -12.3 dB at 5.0s"
 
 
 def test_build_plan_clip_has_unit_speed_and_a_hard_cut_default():
-    plan = build_plan(SRC_ID, [{"t": 5.0, "level_db": -5.0}], {})
+    plan = build_plan(_sources([{"t": 5.0, "level_db": -5.0}]), {})
     clip = plan["clips"][0]
     assert clip["speed"] == 1.0
     assert clip.get("transition_out") is None
 
 
 def test_build_plan_top_level_shape_matches_the_documented_contract():
-    plan = build_plan(SRC_ID, [{"t": 5.0, "level_db": -5.0}], {})
+    plan = build_plan(_sources([{"t": 5.0, "level_db": -5.0}]), {})
     assert plan["version"] == "1"
     assert plan["summary"] == "Fallback plan (no-LLM): top loudness peaks"
     assert plan["color"]["preset"] == "none"
@@ -177,7 +209,7 @@ CURVE_SHAPES = {
 )
 def test_build_plan_output_always_validates_unmodified(curve_name, prefs):
     points = CURVE_SHAPES[curve_name]
-    raw_plan = build_plan(SRC_ID, points, prefs)
+    raw_plan = build_plan(_sources(points), prefs)
 
     plan = validate_plan(EditPlan.model_validate(raw_plan), prefs)
 

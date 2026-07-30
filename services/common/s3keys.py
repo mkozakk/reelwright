@@ -39,3 +39,9 @@ def work_scenes_key(job_id: str, src_id: str) -> str:
 
 def work_transcript_key(job_id: str, src_id: str) -> str:
     return f"work/{job_id}/transcript/{src_id}.json"
+
+
+def work_asset_key(job_id: str, src_id: str) -> str:
+    # 48kHz stereo, music-quality -- distinct from work_audio_key's 16kHz
+    # mono Whisper/loudness/scenes input
+    return f"work/{job_id}/assets/{src_id}.flac"

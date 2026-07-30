@@ -28,3 +28,4 @@ package() {
 
 package trigger common trigger
 package semaphore common semaphore
+package session_profile common session_profile

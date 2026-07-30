@@ -43,6 +43,7 @@ def test_run_analyze_scenes_writes_a_compact_json_artifact_matching_the_data_mod
 
     run_analyze_scenes(
         job_id,
+        "src1",
         jobs_table=aws_stack["jobs_table"],
         raw_bucket=aws_stack["raw_bucket"],
         work_bucket=aws_stack["work_bucket"],
@@ -84,6 +85,7 @@ def test_run_analyze_scenes_never_reads_the_source_video_from_the_work_bucket(aw
 
     run_analyze_scenes(
         job_id,
+        "src1",
         jobs_table=aws_stack["jobs_table"],
         raw_bucket=aws_stack["raw_bucket"],
         work_bucket=aws_stack["work_bucket"],
@@ -102,6 +104,6 @@ def test_handler_reads_env_vars_and_delegates_to_run_analyze_scenes(aws_stack, m
     monkeypatch.setenv("RAW_BUCKET", aws_stack["raw_bucket"])
     monkeypatch.setenv("WORK_BUCKET", aws_stack["work_bucket"])
 
-    assert handler({"job_id": job_id}) == {"job_id": job_id}
+    assert handler({"job_id": job_id, "src_id": "src1"}) == {"job_id": job_id, "src_id": "src1"}
     job = dynamo.get_job(aws_stack["jobs_table"], job_id)
     assert job.analysis_keys["scenes"]["src1"] == s3keys.work_scenes_key(job_id, "src1")

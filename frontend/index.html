@@ -36,12 +36,23 @@
         <h2>new job</h2>
         <form id="upload-form">
           <label>
-            video file
-            <input id="upload-file" type="file" accept="video/mp4,video/quicktime,video/webm" required>
+            video/audio files (1-5; at least one video)
+            <input
+              id="upload-file"
+              type="file"
+              multiple
+              accept="video/mp4,video/quicktime,video/webm,audio/mp4,audio/aac,audio/ogg,audio/mpeg"
+              required
+            >
           </label>
           <label>
-            vibe (optional)
-            <input id="upload-vibe" type="text" maxlength="200" placeholder="punchy highlight reel">
+            editing instructions (optional)
+            <textarea
+              id="upload-vibe"
+              maxlength="400"
+              rows="2"
+              placeholder="e.g. open on the first scene from video 1, use the audio I uploaded as music, keep it gentle with minimal effects"
+            ></textarea>
           </label>
           <label>
             aspect
@@ -58,8 +69,7 @@
           <button type="submit">upload &amp; start</button>
         </form>
         <div id="upload-progress" hidden>
-          <progress id="upload-progress-bar" max="100" value="0"></progress>
-          <span id="upload-progress-label"></span>
+          <ul id="upload-progress-list"></ul>
         </div>
         <div id="upload-error" class="banner error" hidden></div>
       </section>
@@ -73,6 +83,7 @@
         <button id="back-to-jobs-btn" type="button">&larr; back to my jobs</button>
         <h2>job <span id="status-job-id"></span></h2>
         <p>status: <strong id="status-value"></strong></p>
+        <p id="status-sources" hidden></p>
         <div id="status-error" class="banner error" hidden></div>
 
         <div id="status-player" hidden>
