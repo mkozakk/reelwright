@@ -11,10 +11,10 @@ from services.common.logging import log_job
 from services.common.tracing import segment
 
 
-def run_analyze_transcribe(job_id: str, jobs_table: str, work_bucket: str, model_dir: str) -> None:
+def run_analyze_transcribe(job_id: str, src_id: str, jobs_table: str, work_bucket: str, model_dir: str) -> None:
     dynamo.start_step(jobs_table, job_id, "transcribe")
     job = dynamo.get_job(jobs_table, job_id)
-    src_id, audio_key = next(iter(job.analysis_keys["audio"].items()))  # single source in Phase 3
+    audio_key = job.analysis_keys["audio"][src_id]
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -44,17 +44,19 @@ def run_analyze_transcribe(job_id: str, jobs_table: str, work_bucket: str, model
         transcript_key = s3keys.work_transcript_key(job_id, src_id)
         storage.upload(work_bucket, transcript_key, out_path)
 
-    dynamo.set_analysis_key(jobs_table, job_id, "transcript", {src_id: transcript_key})
+    dynamo.set_analysis_key(jobs_table, job_id, "transcript", src_id, transcript_key)
     dynamo.finish_step(jobs_table, job_id, "transcribe")
 
 
 def handler(event: dict, context=None) -> dict:
     job_id = event["job_id"]
+    src_id = event["src_id"]
     with log_job(__name__, job_id), segment(__name__, job_id):
         run_analyze_transcribe(
             job_id,
+            src_id,
             jobs_table=os.environ["JOBS_TABLE"],
             work_bucket=os.environ["WORK_BUCKET"],
             model_dir=os.environ["MODEL_DIR"],
         )
-    return {"job_id": job_id}
+    return {"job_id": job_id, "src_id": src_id}
