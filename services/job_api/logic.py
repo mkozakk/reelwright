@@ -87,9 +87,7 @@ def _validate_prefs(raw: object) -> dict:
 
 
 def validate_create_request(body: dict) -> dict:
-    """Normalise POST /jobs input into {content_type, size, prefs}. notify_email
-    comes from the Cognito email claim, not free-text body input (closes the
-    attacker-chosen-recipient gap docs/phases/phase-5.md describes). Caps are
+    """Normalise POST /jobs input into {content_type, size, prefs}. Caps are
     enforced here at the boundary and re-checked in Probe (docs.DESIGN.md 5)."""
     content_type = body.get("content_type")
     if content_type not in ALLOWED_CONTENT_TYPES:
@@ -146,15 +144,13 @@ def validate_complete_request(body: dict) -> dict:
 
 
 def build_job_item(
-    job_id: str, src_id: str, key: str, request: dict, created: datetime, user_id: str, email: str
+    job_id: str, src_id: str, key: str, request: dict, created: datetime, user_id: str
 ) -> dict:
     """The DynamoDB item for a freshly created job. user_id/created_at are
-    what GSI1 projects on for the per-user job list (docs/phases/phase-7.md).
-    notify_email is the Cognito account's own verified email, not user input."""
+    what GSI1 projects on for the per-user job list (docs/phases/phase-7.md)."""
     return {
         "pk": f"JOB#{job_id}",
         "user_id": user_id,
-        "notify_email": email,
         "status": "UPLOADING",
         "created_at": created.isoformat(),
         "sources": {
