@@ -178,8 +178,22 @@
         const li = document.createElement("li");
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.textContent = `${job.job_id} -- ${job.status} -- ${job.created_at}`;
+        btn.className = "job-row";
         btn.onclick = () => showStatus(job.job_id);
+
+        const id = document.createElement("span");
+        id.className = "job-id";
+        id.textContent = job.job_id;
+
+        const status = document.createElement("span");
+        status.className = "status-tag";
+        status.dataset.status = job.status;
+
+        const date = document.createElement("span");
+        date.className = "job-date";
+        date.textContent = job.created_at;
+
+        btn.append(id, status, date);
         li.appendChild(btn);
         list.appendChild(li);
       }
@@ -221,7 +235,7 @@
       return;
     }
 
-    document.getElementById("status-value").textContent = job.status;
+    document.getElementById("status-value").dataset.status = job.status;
     if (job.error) setError("status-error", job.error);
 
     const player = document.getElementById("status-player");
@@ -281,6 +295,7 @@
       const removeTd = document.createElement("td");
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
+      removeBtn.className = "btn-remove";
       removeBtn.textContent = "remove";
       removeBtn.onclick = () => {
         currentPlan.clips.splice(index, 1);

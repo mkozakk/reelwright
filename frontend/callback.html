@@ -2,13 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>signing in...</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="page">
   <main>
-    <p id="callback-status">signing in...</p>
+    <p id="callback-status" class="eyebrow">signing in&hellip;</p>
   </main>
+  </div>
   <script src="config.js"></script>
   <script src="auth.js"></script>
   <script>
@@ -18,6 +24,7 @@
         await Auth.handleCallback();
         window.location.replace("index.html");
       } catch (err) {
+        statusEl.className = "banner error";
         statusEl.textContent = "sign-in failed: " + err.message;
       }
     })();

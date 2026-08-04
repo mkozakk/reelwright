@@ -4,14 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>reelwright</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="page">
   <header>
-    <h1>reelwright</h1>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
+          <path d="M6 4.5 19 12 6 19.5Z" fill="white"/>
+        </svg>
+      </span>
+      <h1>reelwright</h1>
+    </div>
     <div id="account-bar" hidden>
       <span id="account-email"></span>
-      <button id="sign-out-btn" type="button">sign out</button>
+      <button id="sign-out-btn" type="button" class="btn-ghost">sign out</button>
     </div>
   </header>
 
@@ -22,8 +33,74 @@
     </div>
 
     <section id="signed-out-view">
-      <p>Upload footage, get an AI-directed montage back.</p>
-      <button id="sign-in-btn" type="button">sign in</button>
+      <div class="hero">
+        <h2 class="hero-heading">Raw footage in.<br>A directed cut out.</h2>
+        <p class="lede">
+          Upload a handful of clips, describe the vibe if you want one, and an
+          LLM plans the edit: pacing, transitions, color, music ducked under
+          dialogue. The renderer then builds it deterministically.
+        </p>
+        <button id="sign-in-btn" type="button" class="btn-primary btn-large">sign in</button>
+      </div>
+
+      <ol class="how-it-works">
+        <li class="step-card">
+          <span class="step-num">1</span>
+          <h3>Upload footage</h3>
+          <p>1&ndash;5 clips, video or audio, at least one has to be video.</p>
+        </li>
+        <li class="step-card">
+          <span class="step-num">2</span>
+          <h3>Describe the cut</h3>
+          <p>Optional: what to open on, the vibe, what to use as music. Skip it and it finds the strongest moments on its own.</p>
+        </li>
+        <li class="step-card">
+          <span class="step-num">3</span>
+          <h3>Get the edit back</h3>
+          <p>A graded, subtitled cut lands a few minutes later. Review the edit plan clip by clip, tweak a timing, rerender.</p>
+        </li>
+      </ol>
+
+      <div class="capability-grid">
+        <h3 class="section-label">what it can do</h3>
+        <div class="cap-cards">
+          <div class="cap-card">
+            <span class="cap-icon" data-tone="a">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="12" height="7" rx="2"/><rect x="9" y="13" width="12" height="7" rx="2"/></svg>
+            </span>
+            <h4>Cuts &amp; transitions</h4>
+            <p>Hard cuts, crossfades, fades, paced to the footage.</p>
+          </div>
+          <div class="cap-card">
+            <span class="cap-icon" data-tone="b">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="10" r="6"/><circle cx="15" cy="14" r="6"/></svg>
+            </span>
+            <h4>Color</h4>
+            <p>Cinematic teal-orange, vivid, black &amp; white.</p>
+          </div>
+          <div class="cap-card">
+            <span class="cap-icon" data-tone="c">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><line x1="7" y1="14" x2="13" y2="14"/><line x1="7" y1="10" x2="17" y2="10"/></svg>
+            </span>
+            <h4>Subtitles</h4>
+            <p>Word-accurate captions, burned in.</p>
+          </div>
+          <div class="cap-card">
+            <span class="cap-icon" data-tone="d">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="17" r="3"/><circle cx="18" cy="15" r="3"/><path d="M10 17V5l11-2v12"/></svg>
+            </span>
+            <h4>Music</h4>
+            <p>Auto-ducked under dialogue.</p>
+          </div>
+          <div class="cap-card">
+            <span class="cap-icon" data-tone="e">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3H4v3M17 3h3v3M7 21H4v-3M17 21h3v-3"/></svg>
+            </span>
+            <h4>Aspect</h4>
+            <p>16:9, 9:16, 1:1.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section id="app-view" hidden>
@@ -33,7 +110,7 @@
       </nav>
 
       <section id="upload-view">
-        <h2>new job</h2>
+        <h2 class="section-label">new job</h2>
         <form id="upload-form">
           <label>
             video/audio files (1-5; at least one video)
@@ -62,11 +139,11 @@
               <option value="1:1">1:1</option>
             </select>
           </label>
-          <label>
+          <label class="checkbox-label">
             <input id="upload-subtitles" type="checkbox">
             subtitles
           </label>
-          <button type="submit">upload &amp; start</button>
+          <button type="submit" class="btn-primary">upload &amp; start</button>
         </form>
         <div id="upload-progress" hidden>
           <ul id="upload-progress-list"></ul>
@@ -75,14 +152,14 @@
       </section>
 
       <section id="jobs-view" hidden>
-        <h2>my jobs</h2>
+        <h2 class="section-label">my jobs</h2>
         <ul id="jobs-list"></ul>
       </section>
 
       <section id="status-view" hidden>
-        <button id="back-to-jobs-btn" type="button">&larr; back to my jobs</button>
-        <h2>job <span id="status-job-id"></span></h2>
-        <p>status: <strong id="status-value"></strong></p>
+        <button id="back-to-jobs-btn" type="button" class="btn-ghost">&larr; back to my jobs</button>
+        <h2 class="job-heading">job <span id="status-job-id"></span></h2>
+        <p><span id="status-value" class="status-tag"></span></p>
         <p id="status-sources" hidden></p>
         <div id="status-error" class="banner error" hidden></div>
 
@@ -92,19 +169,22 @@
         </div>
 
         <div id="plan-editor" hidden>
-          <h3>edit plan</h3>
+          <h3 class="section-label">edit plan</h3>
           <p id="plan-summary"></p>
-          <table>
-            <thead>
-              <tr><th>source</th><th>start (s)</th><th>end (s)</th><th>speed</th><th>reason</th><th></th></tr>
-            </thead>
-            <tbody id="plan-clips-body"></tbody>
-          </table>
-          <button id="plan-rerender-btn" type="button">rerender</button>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr><th>source</th><th>start (s)</th><th>end (s)</th><th>speed</th><th>reason</th><th></th></tr>
+              </thead>
+              <tbody id="plan-clips-body"></tbody>
+            </table>
+          </div>
+          <button id="plan-rerender-btn" type="button" class="btn-primary">rerender</button>
         </div>
       </section>
     </section>
   </main>
+  </div>
 
   <script src="config.js"></script>
   <script src="auth.js"></script>
