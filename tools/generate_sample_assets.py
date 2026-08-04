@@ -23,6 +23,20 @@ def generate_clip(path: Path, video_source: str, tone_hz: int, duration: int) ->
     )
 
 
+def generate_rotation_fixtures(source: Path, baked_out: Path, flagged_out: Path) -> None:
+    # transpose=2 (90 CCW) matches the h264_metadata bsf's "anticlockwise" rotate=90 SEI below.
+    run(["-i", str(source), "-vf", "transpose=2", "-c:v", "libx264", "-c:a", "aac", str(baked_out)])
+    # h264_metadata bsf stamps a Display Orientation SEI (rotation=90) without
+    # re-encoding -- coded pixels stay 1280x720, matching how phones flag rotation.
+    run(
+        [
+            "-i", str(source), "-c", "copy",
+            "-bsf:v", "h264_metadata=display_orientation=insert:rotate=90",
+            str(flagged_out),
+        ]
+    )
+
+
 def generate_music(path: Path, tone_hz: int, duration: int, vibrato: bool) -> None:
     filters = "volume=0.4"
     if vibrato:
@@ -43,6 +57,12 @@ def main() -> None:
 
     generate_clip(SAMPLE_DIR / "clip_a.mp4", "testsrc2", 440, 8)
     generate_clip(SAMPLE_DIR / "clip_b.mp4", "smptebars", 880, 8)
+
+    generate_rotation_fixtures(
+        SAMPLE_DIR / "clip_b.mp4",
+        SAMPLE_DIR / "clip_b_portrait_baked.mp4",
+        SAMPLE_DIR / "clip_b_portrait_flagged.mp4",
+    )
 
     generate_music(MUSIC_DIR / "placeholder-energetic.wav", 220, 14, vibrato=False)
     generate_music(MUSIC_DIR / "placeholder-chill.wav", 180, 14, vibrato=True)
