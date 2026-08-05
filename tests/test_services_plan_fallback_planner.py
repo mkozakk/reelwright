@@ -19,9 +19,6 @@ def _sources(points: list[dict], duration: float | None = None) -> dict:
     return {SRC_ID: {"points": points, "duration": duration}}
 
 
-# --- empty curve (Implementation Details' defensive fallback) ---------------
-
-
 def test_build_plan_empty_curve_emits_a_single_six_second_clip_by_default():
     plan = build_plan(_sources([]), {"max_duration": 30.0})
     assert len(plan["clips"]) == 1
@@ -54,9 +51,6 @@ def test_build_plan_never_raises_on_an_empty_curve():
     build_plan(_sources([]), {})  # must not raise
 
 
-# --- boundary clamping (single peak near t=0 or near source_duration) -------
-
-
 def test_build_plan_single_peak_near_source_start_clamps_left_edge_to_zero():
     points = [{"t": 0.2, "level_db": -5.0}]
     plan = build_plan(_sources(points), {})
@@ -73,9 +67,6 @@ def test_build_plan_single_peak_clamps_right_edge_to_approximated_source_duratio
     # source_duration ~= max(t) + ~1s sampling interval, strictly less than
     # an unclamped t +/- 3s window -- the right edge must clamp.
     assert clip["end"] < points[0]["t"] + CLIP_HALF_WINDOW_SECONDS
-
-
-# --- clustered / overlapping peaks -------------------------------------------
 
 
 def test_build_plan_skips_a_lower_ranked_overlapping_peak_rather_than_shrinking_it():
@@ -130,9 +121,6 @@ def test_build_plan_overlap_check_is_scoped_per_source():
     assert len(plan["clips"]) == 2
 
 
-# --- output contract shape ---------------------------------------------------
-
-
 def test_build_plan_never_enables_subtitles_regardless_of_prefs():
     # render/main.py can't burn subtitles in across cut segments yet
     plan = build_plan(_sources([{"t": 1.0, "level_db": -5.0}]), {"subtitles_enabled": True})
@@ -158,9 +146,6 @@ def test_build_plan_top_level_shape_matches_the_documented_contract():
     assert plan["color"]["preset"] == "none"
     assert plan["audio"]["music_track"] is None
     assert plan["audio"]["duck_under_speech"] is False
-
-
-# --- property-style test: output always validates, for many curve shapes ----
 
 
 def _uniform_curve(n: int, spacing: float = 1.0) -> list[dict]:

@@ -32,8 +32,6 @@
     el.textContent = message || "";
   }
 
-  // --- upload -----------------------------------------------------------
-
   function xhrUpload(url, method, headers, file, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -161,8 +159,6 @@
     }
   }
 
-  // --- job list -----------------------------------------------------------
-
   async function showJobs() {
     show("jobs-view");
     const list = document.getElementById("jobs-list");
@@ -201,8 +197,6 @@
       list.textContent = "failed to load jobs: " + err.message;
     }
   }
-
-  // --- status + plan editor ------------------------------------------------
 
   let statusPollTimer = null;
   let currentJobId = null;
@@ -320,8 +314,6 @@
       setError("status-error", err.message);
     }
   }
-
-  // --- wiring ---------------------------------------------------------------
 
   function init() {
     if (Auth.isSignedIn()) {

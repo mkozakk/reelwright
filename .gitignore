@@ -1,6 +1,5 @@
 # --- Project-local / not for the repo ---
 out/
-docs/
 CLAUDE.md
 .claude/
 .env

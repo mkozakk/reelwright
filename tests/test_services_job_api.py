@@ -60,9 +60,6 @@ def _state_machine_arn() -> str:
     )["stateMachineArn"]
 
 
-# --- logic (pure) -----------------------------------------------------------
-
-
 def test_parse_body_rejects_empty_and_non_object():
     with pytest.raises(logic.ApiError):
         logic.parse_body(None)
@@ -206,9 +203,6 @@ def test_build_job_item_shapes_the_record_for_multiple_files():
     }
     assert item["prefs"] == {"vibe": "calm"}
     assert item["ttl"] > int(created.timestamp())
-
-
-# --- handler ----------------------------------------------------------------
 
 
 def test_options_preflight_returns_204(aws_stack, monkeypatch):
@@ -456,9 +450,6 @@ def test_get_job_signs_output_urls_when_done(aws_stack, monkeypatch, requires_rs
     assert "Signature=" in body["thumbnail_url"]
     assert body["expires_in"] == logic.PLAYBACK_URL_TTL
     assert body["edit_plan"]["clips"][0]["reason"] == "the punchline"
-
-
-# --- POST /jobs/{id}/start ----------------------------------------------------
 
 
 def _seed_uploading_job(aws_stack, job_id: str, sources: dict, user_id: str = "user-1") -> None:
